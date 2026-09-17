@@ -1,0 +1,20 @@
+# Build dirs
+Build/
+Build_*/
+build/
+bin/
+obj/
+
+# Artefactos JUCE
+*_artefacts/
+*.vst3/
+*.vst
+*.suo
+*.user
+
+# Previews/temporales
+opaline_preview.png
+
+# VS / IDE
+.vs/
+*.vcxproj.user
