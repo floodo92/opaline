@@ -6,7 +6,7 @@
 /* ============================================================
    VOICECHAIN — la cadena serial de brillo "sedoso/caro".
    Orden (mock de la cadena Dua Lipa, todo escalado por Shine/Amount):
-     1  High-pass 85 Hz
+     1  High-pass adaptativo (Learn, 40-150 Hz)
      2  Low-mid cut ~300 Hz (Learn)
      3  De-Esser 5-10 kHz (centro = Learn)
      4  Optical comp (LA-2A)
@@ -67,17 +67,28 @@ private:
         float coeffAtk = 1.0f, coeffRel = 0.001f, state = 0.0f;
     };
 
-    /* 3: de-esser dinámico por banda (idle-bypass), centro profile.deEssFreq.
-       El umbral se calibra con el exceso de sibilancias (sibExcessDb); las "S"
-       se domean hacia el nivel del cuerpo (ref. Paco R.). */
+    /* 3: de-esser de techo relativo al cuerpo (regla Paco Rincón: la "S"
+       nunca por encima del cuerpo 500-1k). Detector linked (max de canales),
+       knee suave 2 dB, attack ~1 ms (sin look-ahead: cero latencia extra),
+       release ~120 ms con gain persistente entre bloques (sin zipper en
+       fronteras). Idle-bypass exacto: sin exceso de sibilancia, gain=1 y la
+       mezcla seco-banda es paso perfecto. El centro lo calibra el Learn
+       (profile.deEssFreq, histéresis de reconstrucción). */
     struct DeEsser
     {
         void prepare (double sr, int block, int nch);
         void reset();
         float process (juce::AudioBuffer<float>& b, float amount, float centre, float sibExcessDb);
-        juce::dsp::IIR::Filter<float> bp;
-        EnvFollower env;
-        double sampleRate = 0; int nch = 2;
+
+        juce::dsp::IIR::Filter<float> bp[2];      // banda de sibilancia: un estado de filtro POR canal
+        juce::dsp::IIR::Filter<float> bodyHP[2];  // detección de cuerpo: HP 500
+        juce::dsp::IIR::Filter<float> bodyLP[2];  //                 + LP 1k -> banda 500-1k
+        EnvFollower envSib;     // detector linked de sibilancia (max de canales)
+        EnvFollower envBody;    // referencia linked de cuerpo (lenta: no la persigue la "S")
+        float gainState = 1.0f; // gain suavizado que persiste entre bloques
+
+        double sampleRate = 0; 
+        int nch = 2;
         float lastCentre = -1.0f;
     };
 
@@ -140,9 +151,10 @@ private:
            llama a reset() cuando la frecuencia/gain real cambian de forma
            significativa. Evita heap-alloc de Coefficients y el reset() por
            bloque que borra el estado (posibles clics en fronteras de bloque). */
+        float lastHighpassF = 85.0f;
         float lastLowMidF = 320.0f,  lastLowMidG = 0.0f;
         float lastMudF    = 250.0f,  lastMudG    = 0.0f;
-        float lastAirF    = 12000.0f, lastAirG    = 0.0f;
+        float lastAirF    = 12000.0f, lastAirG   = 0.0f;
         float lastPresF   = 2500.0f, lastPresG   = 0.0f;
     };
 

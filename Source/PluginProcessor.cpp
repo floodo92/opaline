@@ -57,7 +57,17 @@ void OpalineAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBloc
     gainMatcher.prepare (sampleRate, samplesPerBlock);
 
     // Latencia real del oversampling del exciter -> el DAW la compensa.
-    setLatencySamples (chain.getLatencySamples());
+    bypassLatency = chain.getLatencySamples();
+    setLatencySamples (bypassLatency);
+
+    // Delay del bypass: priming a ceros SIEMPRE en cada prepareToPlay
+    // (si se llama varias veces, el retardo no se acumula).
+    if (bypassLatency > 0)
+    {
+        bypassDelay.setSize (nch, bypassLatency, false, true, true);
+        bypassDelay.clear();
+    }
+    bypassDelayPos = 0;
 }
 
 void OpalineAudioProcessor::releaseResources()
@@ -156,6 +166,27 @@ void OpalineAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         for (int i = 0; i < n; ++i)
             peakIn[ch] = juce::jmax (peakIn[ch], std::abs (buffer.getSample (ch, i)));
 
+    // Delay feed-forward del bypass (§10.14): SIEMPRE se alimenta con la
+    // entrada (contenido fresco, conmutación wet/bypass continua); solo se
+    // LEE el retardo cuando está bypassed, para mantener la latencia
+    // reportada también en bypass.
+    if (bypassLatency > 0)
+    {
+        const int chD = juce::jmin (bypassDelay.getNumChannels(), buffer.getNumChannels());
+        for (int i = 0; i < n; ++i)
+        {
+            for (int c = 0; c < chD; ++c)
+            {
+                auto* d  = buffer.getWritePointer (c);
+                auto* dl = bypassDelay.getWritePointer (c);
+                const float delayed = dl[bypassDelayPos];
+                dl[bypassDelayPos] = d[i];
+                if (bypassed) d[i] = delayed;
+            }
+            bypassDelayPos = (bypassDelayPos + 1 == bypassLatency) ? 0 : bypassDelayPos + 1;
+        }
+    }
+
     if (!bypassed)
     {
         chain.setAmount (amount);
@@ -208,6 +239,9 @@ void OpalineAudioProcessor::getStateInformation (juce::MemoryBlock& dest)
         state.setProperty ("sibLevel",      p.sibilanceLevel, nullptr);
         state.setProperty ("resLevel",      p.resonanceLevel, nullptr);
         state.setProperty ("brightness",    p.brightness, nullptr);
+        state.setProperty ("airTargetDb",   p.airTargetDb, nullptr);
+        state.setProperty ("sibExcessDb",   p.sibExcessDb, nullptr);
+        state.setProperty ("medianPitchHz", p.medianPitchHz, nullptr);
     }
     juce::MemoryOutputStream mo (dest, false);
     state.writeToStream (mo);
@@ -228,6 +262,9 @@ void OpalineAudioProcessor::setStateInformation (const void* data, int size)
             p.sibilanceLevel = (float) tree.getProperty ("sibLevel", p.sibilanceLevel);
             p.resonanceLevel = (float) tree.getProperty ("resLevel", p.resonanceLevel);
             p.brightness     = (float) tree.getProperty ("brightness", p.brightness);
+            p.airTargetDb    = (float) tree.getProperty ("airTargetDb", p.airTargetDb);
+            p.sibExcessDb    = (float) tree.getProperty ("sibExcessDb", p.sibExcessDb);
+            p.medianPitchHz  = (float) tree.getProperty ("medianPitchHz", p.medianPitchHz);
             p.valid = true;
             chain.setLearnProfile (p);
             hasMeasuredFlag = true;

@@ -78,6 +78,12 @@ private:
     std::atomic<float> grShine { 0.0f };
     std::atomic<float> inL { 0.0f }, inR { 0.0f }, outL { 0.0f }, outR { 0.0f };
 
+    /* Delay feed-forward del bypass: mantiene la latencia reportada al DAW
+       también con BYPASS activo (conmutación sin salto de timing, §10.14). */
+    juce::AudioBuffer<float> bypassDelay;
+    int bypassDelayPos = 0;
+    int bypassLatency = 0;
+
     /* Estado de bypass del bloque anterior: en cada transición se limpia la
        cadena y se fijan los parámetros sin rampa (A/B idéntico, sin deriva). */
     bool wasBypassed = true;

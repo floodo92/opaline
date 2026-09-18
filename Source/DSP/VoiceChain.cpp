@@ -17,6 +17,15 @@ bool changed (float oldF, float oldG, float newF, float newG)
 {
     return std::abs (oldF - newF) > 1.0f || std::abs (oldG - newG) > 0.05f;
 }
+
+/* Convierte la fundamental aprendida en un HPF conservador: siempre por
+   debajo del fundamental (0.5x) para no comerse el cuerpo de voces graves
+   (barítonos ~82-196 Hz) y limitado a 40-150 Hz para no dejar pasar
+   sub-bajas ni recortar agudos. */
+float hpFromPitch (float medianPitchHz)
+{
+    return juce::jlimit (40.0f, 150.0f, medianPitchHz * 0.5f);
+}
 }
 
 void VoiceChain::prepare (double sr, int block, int nch)
@@ -60,7 +69,6 @@ void VoiceChain::setBodyAir (float v, bool force)
 }
 
 /* Reset de estado de cada etapa (limpia filtros y envolventes). */
-void VoiceChain::DeEsser::reset()             { bp.reset(); env.reset(); }
 void VoiceChain::OptoComp::reset()            { env.reset(); }
 void VoiceChain::ResonanceSuppressor::reset() { detect.reset(); res.reset(); env.reset(); }
 void VoiceChain::HarmonicExciter::reset()             { hp.reset(); if (os) os->reset(); }
@@ -106,66 +114,140 @@ void VoiceChain::process (juce::AudioBuffer<float>& buffer, unsigned int stageMa
         parGR = parallel.process (buffer, amount);
 }
 
-/* ============ De-Esser ============ */
+/* ============ De-Esser (techo relativo al cuerpo) ============ */
+/* Diseño estilo ingeniero: la "S" NUNCA debe superar el nivel del cuerpo
+   500-1k (regla Paco Rincón). El techo se calcula POR MUESTRA a partir de
+   la envolvente lenta del cuerpo; la banda que se resta de la señal es la
+   MISMA muestra que sale (sin retardos -> sin residuos ni filtro peine),
+   el detector es linked (max de canales) y cada canal tiene su propio
+   estado de filtro. Sin look-ahead: attack 1 ms cubre el ataque real de
+   una "S" (10-30 ms) sin añadir latencia a la cadena. */
 
 void VoiceChain::DeEsser::prepare (double sr, int block, int nch)
 {
     sampleRate = sr; this->nch = nch;
     lastCentre = -1.0f;
-    juce::dsp::ProcessSpec spec { sampleRate, (juce::uint32) block, (juce::uint32) nch };
-    bp.prepare (spec);
-    bp.coefficients = juce::dsp::IIR::Coefficients<float>::makeBandPass (sr, 7000.0f, 1.0f);
-    bp.reset();
-    env.reset (sr, 1.0f, 50.0f, false);
+    gainState  = 1.0f;
+
+    juce::dsp::ProcessSpec spec { sampleRate, (juce::uint32) juce::jmax (1, block),
+                                  (juce::uint32) juce::jmax (1, nch) };
+    for (int c = 0; c < 2; ++c)
+    {
+        bp[c].prepare (spec);
+        bp[c].coefficients = juce::dsp::IIR::Coefficients<float>::makeBandPass (sr, 7000.0f, 1.0f);
+        bp[c].reset();
+
+        // Referencia de cuerpo = banda 500-1k (HP 500 + LP 1k). Con un HP
+        // solo, la sibilancia entraba en la referencia y el techo perseguía
+        // a la "S" hacia arriba (pumping / under-reacción).
+        bodyHP[c].prepare (spec);
+        bodyHP[c].coefficients = juce::dsp::IIR::Coefficients<float>::makeHighPass (sr, 500.0f, 0.707f);
+        bodyHP[c].reset();
+        bodyLP[c].prepare (spec);
+        bodyLP[c].coefficients = juce::dsp::IIR::Coefficients<float>::makeLowPass (sr, 1000.0f, 0.707f);
+        bodyLP[c].reset();
+    }
+
+    // Detector de sibilancia: attack 1 ms.
+    envSib.reset (sr, 1.0f, 50.0f, false);
+    // Referencia de cuerpo lenta (release 300 ms): el techo se mantiene
+    // estable mientras suena la "S", no "respira" con ella.
+    envBody.reset (sr, 10.0f, 300.0f, false);
+}
+
+void VoiceChain::DeEsser::reset()
+{
+    for (int c = 0; c < 2; ++c) { bp[c].reset(); bodyHP[c].reset(); bodyLP[c].reset(); }
+    envSib.reset();
+    envBody.reset();
+    gainState = 1.0f;
+    lastCentre = -1.0f;
 }
 
 float VoiceChain::DeEsser::process (juce::AudioBuffer<float>& b, float amount, float centre, float sibExcessDb)
 {
-    // Solo se reconstruye el filtro si cambió el centro (tras un Learn, raro);
-    // evita heap-alloc de Coefficients y reset() en cada bloque de audio.
-    if (std::abs (centre - lastCentre) > 1.0f)
-    {
-        bp.coefficients = juce::dsp::IIR::Coefficients<float>::makeBandPass (sampleRate, centre, 1.0f);
-        bp.reset();
-        lastCentre = centre;
-    }
     const int n = b.getNumSamples();
     const int ch = juce::jmin (nch, b.getNumChannels());
+    if (n <= 0 || ch <= 0) return 0.0f;
 
-    // De-esser dinámico por banda (idle-bypass): el detector es la envolvente de
-    // la propia banda; solo cuando la "S" supera el umbral baja la ganancia de la
-    // banda. En reposo, gain=1 -> la señal pasa intacta (se acabó el fuzz constante
-    // y el "+3x" que sumaba brillo en toda la banda 5-10k).
-    // El umbral baja con el exceso medido por el Learn (sibExcessDb) y con Shine.
-    // Mapeo suave: en el corpus las "S" de estudio muestran exceso 15-24 dB frente
-    // al cuerpo; 0.88^(24/6)=0.60 -> el de-esser SOLO profundiza, nunca aísla la banda.
-    const float thr1  = 0.55f - 0.40f * amount;
-    const float thr   = thr1 * std::pow (0.88f, juce::jmax (0.0f, sibExcessDb) / 6.0f);
-    const float ratio = 1.0f + 2.5f * amount;
+    // Centro: el que calibró el Learn (deEssFreq). Histéresis: solo se
+    // reconstruyen los coeficientes si cambió de verdad (evita alloc + reset
+    // en cada bloque de audio).
+    if (std::abs (centre - lastCentre) > 1.0f)
+    {
+        for (int c = 0; c < 2; ++c)
+        {
+            bp[c].coefficients = juce::dsp::IIR::Coefficients<float>::makeBandPass (sampleRate, centre, 1.0f);
+            bp[c].reset();
+        }
+        lastCentre = centre;
+    }
+
+    // Techo dinámico (regla Paco Rincón): la "S" no debe superar el cuerpo.
+    // ceilDb baja con Shine (más estricto) y con el exceso medido por el
+    // Learn; con ratio finito el nivel TIENDE al techo (compresión musical,
+    // no clamp duro).
+    const float ceilDb   = -(1.0f + 4.0f * amount) - 0.25f * juce::jmax (0.0f, sibExcessDb);
+    const float ceilingK = std::pow (10.0f, ceilDb / 20.0f);
+    const float kneeDb   = 2.0f;
+    const float halfKnee = kneeDb * 0.5f;
+    const float ratio    = 1.0f + 3.0f * amount;
+    const float slope    = 1.0f - 1.0f / ratio;      // fracción del over que se recorta
     const float relCoeff = 1.0f - std::exp (-1.0f / (0.120f * (float) sampleRate + 1e-6f)); // release ~120 ms
 
-    float gain = 1.0f, grMax = 0.0f;
-    for (int c = 0; c < ch; ++c)
+    float grMax = 0.0f;
+    float* d[2] = { b.getWritePointer (0), nullptr };
+    if (ch > 1) d[1] = b.getWritePointer (1);
+
+    for (int i = 0; i < n; ++i)
     {
-        auto* dd = b.getWritePointer (c);
-        for (int i = 0; i < n; ++i)
+        // Banda de sibilancia POR canal (estado de filtro independiente):
+        // la misma señal se usa para detectar Y para la mezcla -> gain=1
+        // es paso perfecto, sin inyectar residuo de otras muestras.
+        const float band0 = bp[0].processSample (d[0][i]);
+        const float band1 = (ch > 1) ? bp[1].processSample (d[1][i]) : 0.0f;
+
+        // Referencia linked de cuerpo 500-1k (max de canales).
+        const float body0 = bodyLP[0].processSample (bodyHP[0].processSample (d[0][i]));
+        const float body1 = (ch > 1) ? bodyLP[1].processSample (bodyHP[1].processSample (d[1][i])) : 0.0f;
+
+        const float e   = envSib.processSample  (juce::jmax (std::abs (band0), std::abs (band1)));
+        const float ref = envBody.processSample (juce::jmax (std::abs (body0), std::abs (body1)));
+
+        // Techo = cuerpo * ceilingK. Sin voz (ref bajo el piso) o sin banda
+        // audible (e bajo el piso de -66 dBFS): gain=1 exacto (idle-bypass,
+        // no se toca el audio).
+        float gTarget = 1.0f;
+        if (ref > 1e-5f && e > 5e-4f)
         {
-            const float band = bp.processSample (dd[i]);
-            const float e = (c == 0) ? env.processSample (band) : env.getCurrentValue();
-            // Target de ganancia desde el nivel de la banda (soft knee por encima
-            // del umbral); attack inmediato, release suave a one-pole.
-            float gTarget = 1.0f;
-            if (e > thr)
+            const float thr = ref * ceilingK;
+            const float overDb = 20.0f * std::log10 (juce::jmax (1e-4f, e / juce::jmax (1e-6f, thr)));
+            if (overDb > -halfKnee)
             {
-                const float overDb = 20.0f * std::log10 (juce::jmax (1e-4f, e / thr));
-                gTarget = std::pow (10.0f, (-ratio * overDb) / 20.0f);
+                // Knee suave 2 dB, C1-continuo con la rama de ratio encima.
+                float grDb;
+                if (overDb >= halfKnee)
+                    grDb = (overDb - halfKnee) * slope;
+                else
+                {
+                    const float t = overDb + halfKnee;          // 0..kneeDb
+                    grDb = (t * t) / (2.0f * kneeDb) * slope;
+                }
+                gTarget = std::pow (10.0f, -grDb / 20.0f);
             }
-            if (gTarget < gain)     gain = gTarget;
-            else                    gain += relCoeff * (gTarget - gain);
-            // Mezcla de banda: seco - banda + banda*gain (gain=1 -> bypass perfecto).
-            dd[i] = dd[i] - band + band * gain;
         }
-        grMax = juce::jmax (grMax, 1.0f - gain);
+
+        // Attack inmediato (protege del overshoot), release suave 120 ms.
+        // gainState persiste entre bloques: sin zipper en fronteras.
+        if (gTarget < gainState) gainState  = gTarget;
+        else                     gainState += relCoeff * (gTarget - gainState);
+
+        // Mezcla seco/banda de la MISMA muestra.
+        d[0][i] = d[0][i] - band0 + band0 * gainState;
+        if (ch > 1)
+            d[1][i] = d[1][i] - band1 + band1 * gainState;
+
+        grMax = juce::jmax (grMax, 1.0f - gainState);
     }
     return juce::jlimit (0.0f, 1.0f, grMax);
 }
@@ -382,6 +464,7 @@ void VoiceChain::EqStage::prepare (double sr, int block, int nch)
     presence.coefficients = makePeak (sr, 2500.0f, 0.9f, 0.0f);
     highpass.reset(); lowMidCut.reset(); mudCut.reset(); airShelf.reset(); presence.reset();
     // Sincroniza la caché de histéresis con los coeficientes recién creados.
+    lastHighpassF = 85.0f;
     lastLowMidF = 320.0f;  lastLowMidG = 0.0f;
     lastMudF    = 250.0f;  lastMudG    = 0.0f;
     lastAirF    = 12000.0f; lastAirG   = 0.0f;
@@ -408,6 +491,20 @@ void VoiceChain::EqStage::process (juce::AudioBuffer<float>& b, const LearnProfi
     // se haría `new` y reset() en cada bloque de audio: alloc prohibido en el
     // hilo de audio y el reset() borra la memoria del filtro en cada frontera
     // de bloque (clics/zipper). El smoothing del parámetro ya lo da `amount`.
+
+    // HPF adaptativo: se recalcula solo si el Learn produjo un perfil válido
+    // y la frecuencia del mediana de pitch cambió más de 1 Hz.
+    if (p.valid)
+    {
+        const float hpF = hpFromPitch (p.medianPitchHz);
+        if (changed (lastHighpassF, 0.0f, hpF, 0.0f))
+        {
+            highpass.coefficients = juce::dsp::IIR::Coefficients<float>::makeHighPass (sampleRate, hpF, 0.707f);
+            highpass.reset();
+            lastHighpassF = hpF;
+        }
+    }
+
     if (changed (lastLowMidF, lastLowMidG, p.lowMidFreq, lowMidCutDb))
     {
         lowMidCut.coefficients = makePeak (sampleRate, p.lowMidFreq, 1.0f, lowMidCutDb);
