@@ -1,0 +1,637 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Opaline — UI spec</title>
+<!-- 3 webfonts permitidas -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* =========================================================
+   TOKENS — extraíbles automáticamente para JUCE
+   ========================================================= */
+:root{
+  /* superficies */
+  --bg:          #060708;
+  --surface:     #0e1013;
+  --panel:       #12151a;
+  --panelMid:    #181b21;
+  --raised:      #1d2129;
+  --inset:       #050607;
+
+  /* acento ópalo (solo uso fino) */
+  --accent:      #cfc6f2;
+  --opalWarm:    #e8c8a8;
+  --opalCold:    #9fb8e8;
+
+  /* hairlines */
+  --hairFaint:   rgba(255,255,255,0.055);
+  --hairNormal:  rgba(255,255,255,0.095);
+  --hairStrong:  rgba(255,255,255,0.17);
+
+  /* texto */
+  --textHi:      #eceef1;
+  --textMid:     #9aa1ab;
+  --textLo:      #5a626c;
+
+  /* semánticos (solo meters / peligro) */
+  --safe:        #52c49a;
+  --warn:        #e0ad5a;
+  --danger:      #e06a6a;
+
+  /* radios */
+  --r3: 3px;
+  --r5: 5px;
+  --r8: 8px;
+  --r10:10px;
+
+  /* metal de knobs (acero, no cromo) */
+  --metalHi:  #a9a9b3;
+  --metalMid: #75757f;
+  --metalLo:  #484852;
+
+  /* layout */
+  --canvas-w: 400px;
+  --canvas-h: 460px;
+}
+
+/* =========================================================
+   RESET + CANVAS FIJO
+   ========================================================= */
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{
+  width:var(--canvas-w);
+  height:var(--canvas-h);
+  background:var(--bg);
+  font-family:'Inter',system-ui,sans-serif;
+  color:var(--textHi);
+  -webkit-font-smoothing:antialiased;
+  overflow:hidden;
+}
+
+/* contenedor raíz del plugin */
+#opaline{
+  position:relative;
+  width:var(--canvas-w);
+  height:var(--canvas-h);
+  background:
+    radial-gradient(120% 70% at 50% -10%, #0c0e12 0%, #060708 55%, #04050a 100%);
+  overflow:hidden;
+}
+
+/* =========================================================
+   HEADER — marca + botones
+   ========================================================= */
+.header{
+  position:absolute;
+  top:0;left:0;
+  width:400px;height:52px;
+  background:linear-gradient(180deg,#0b0d11 0%,#08090c 100%);
+  border-bottom:1px solid var(--hairNormal);
+}
+/* hairline inferior reforzada (1px interno) */
+.header::after{
+  content:"";
+  position:absolute;left:0;right:0;bottom:0;
+  height:1px;
+  background:linear-gradient(90deg,
+    rgba(255,255,255,0) 0%,
+    var(--hairNormal) 20%,
+    var(--hairNormal) 80%,
+    rgba(255,255,255,0) 100%);
+}
+
+.brand{
+  position:absolute;
+  top:14px;left:18px;
+}
+.brand-name{
+  font-family:'Barlow Condensed',sans-serif;
+  font-weight:600;
+  font-size:17px;
+  letter-spacing:4px;
+  text-transform:uppercase;
+  color:var(--textHi);
+  line-height:1;
+}
+/* sheen iridiscente sutil — única concesión de marca */
+.brand-name::after{
+  content:"";
+  position:absolute;
+  left:0;right:0;bottom:-3px;
+  height:1px;
+  background:linear-gradient(90deg,
+    rgba(207,198,242,0) 0%,
+    rgba(207,198,242,0.55) 30%,
+    rgba(232,200,168,0.55) 55%,
+    rgba(159,184,232,0.55) 80%,
+    rgba(207,198,242,0) 100%);
+  opacity:0.75;
+}
+.brand-sub{
+  position:absolute;
+  top:34px;left:18px;
+  font-family:'Inter',sans-serif;
+  font-weight:500;
+  font-size:9px;
+  letter-spacing:3px;
+  text-transform:uppercase;
+  color:var(--textLo);
+}
+
+/* botones de header */
+.btn{
+  position:absolute;
+  top:14px;
+  height:24px;
+  padding:0 10px;
+  border-radius:var(--r3);
+  background:linear-gradient(180deg,#16191f 0%,#0f1115 100%);
+  border:1px solid var(--hairNormal);
+  font-family:'Inter',sans-serif;
+  font-weight:600;
+  font-size:9px;
+  letter-spacing:2px;
+  text-transform:uppercase;
+  color:var(--textMid);
+  line-height:22px;
+  text-align:center;
+}
+.btn-bypass{ right:92px; width:66px; }
+.btn-measure{ right:18px; width:66px; }
+
+/* estado activo de BYPASS */
+.btn-bypass.is-active{
+  background:linear-gradient(180deg,#1a1418 0%,#120c10 100%);
+  border-color:rgba(224,106,106,0.35);
+  color:#e8b8b8;
+}
+.btn-bypass.is-active::before{
+  content:"";
+  position:absolute;
+  left:6px;top:50%;
+  width:4px;height:4px;border-radius:50%;
+  background:var(--danger);
+  transform:translateY(-50%);
+}
+
+/* estado medido de MEASURE */
+.btn-measure.is-measured{
+  background:linear-gradient(180deg,#171a22 0%,#101318 100%);
+  border-color:rgba(207,198,242,0.28);
+  color:#d8d3ee;
+}
+.btn-measure.is-measured::before{
+  content:"";
+  position:absolute;
+  left:6px;top:50%;
+  width:4px;height:4px;border-radius:50%;
+  background:var(--accent);
+  transform:translateY(-50%);
+}
+
+/* =========================================================
+   ZONA HERO — SHINE (knob principal)
+   ========================================================= */
+.hero{
+  position:absolute;
+  top:52px;left:0;
+  width:400px;height:198px;
+  background:linear-gradient(180deg,
+    #08090c 0%,
+    #0a0c10 50%,
+    #07080b 100%);
+  border-bottom:1px solid var(--hairFaint);
+}
+
+.hero-label{
+  position:absolute;
+  top:14px;left:0;
+  width:400px;
+  text-align:center;
+  font-family:'Barlow Condensed',sans-serif;
+  font-weight:600;
+  font-size:11px;
+  letter-spacing:5px;
+  text-transform:uppercase;
+  color:var(--textMid);
+}
+
+/* knob SHINE — 140px, hero */
+.knob-hero{
+  position:absolute;
+  top:36px;
+  left:130px;          /* (400-140)/2 */
+  width:140px;height:140px;
+  border-radius:50%;
+  /* acero cepillado: gradiente radial con 3 stops */
+  background:
+    radial-gradient(circle at 50% 42%,
+      #2a2d35 0%,
+      #1a1d23 35%,
+      #0f1116 70%,
+      #0a0c10 100%);
+  border:1px solid var(--hairNormal);
+  /* sombra única permitida */
+  box-shadow:
+    0 6px 14px rgba(0,0,0,0.55),
+    inset 0 1px 0 rgba(255,255,255,0.05);
+}
+/* anillo exterior metálico */
+.knob-hero::before{
+  content:"";
+  position:absolute;
+  inset:-8px;
+  border-radius:50%;
+  background:
+    radial-gradient(circle at 50% 35%,
+      var(--metalHi) 0%,
+      var(--metalMid) 35%,
+      var(--metalLo) 70%,
+      #2a2c32 100%);
+  z-index:-1;
+}
+/* indicador con sheen iridiscente (única concesión) */
+.knob-hero::after{
+  content:"";
+  position:absolute;
+  left:50%;top:10px;
+  width:2px;height:34px;
+  margin-left:-1px;
+  border-radius:1px;
+  background:linear-gradient(180deg,
+    var(--opalCold) 0%,
+    var(--accent) 45%,
+    var(--opalWarm) 100%);
+  transform-origin:50% 60px;
+  transform:rotate(-120deg); /* valor 0 — arranque bajo */
+  opacity:0.95;
+}
+
+/* valor numérico del hero */
+.hero-value{
+  position:absolute;
+  top:178px;left:0;
+  width:400px;
+  text-align:center;
+  font-family:'JetBrains Mono',monospace;
+  font-weight:500;
+  font-size:18px;
+  letter-spacing:1px;
+  color:var(--textHi);
+}
+.hero-value .unit{
+  font-size:10px;
+  color:var(--textLo);
+  letter-spacing:2px;
+  margin-left:4px;
+  text-transform:uppercase;
+}
+
+/* =========================================================
+   METERS — IN / OUT
+   ========================================================= */
+.meters{
+  position:absolute;
+  top:250px;left:0;
+  width:400px;height:60px;
+  background:linear-gradient(180deg,#08090c 0%,#0a0c10 100%);
+  border-bottom:1px solid var(--hairFaint);
+}
+
+.meter{
+  position:absolute;
+  top:10px;
+  width:170px;height:42px;
+  background:var(--inset);
+  border:1px solid var(--hairNormal);
+  border-radius:var(--r3);
+}
+.meter-in{ left:18px; }
+.meter-out{ left:212px; }
+
+.meter-label{
+  position:absolute;
+  top:-8px;left:8px;
+  font-family:'Barlow Condensed',sans-serif;
+  font-weight:600;
+  font-size:9px;
+  letter-spacing:3px;
+  text-transform:uppercase;
+  color:var(--textLo);
+  background:var(--bg);
+  padding:0 4px;
+}
+
+.meter-rows{
+  position:absolute;
+  top:6px;left:8px;right:8px;
+  height:30px;
+}
+.meter-row{
+  position:absolute;
+  left:0;right:0;
+  height:11px;
+  display:flex;
+  gap:2px;
+}
+.meter-row.top{ top:0; }
+.meter-row.bot{ top:15px; }
+
+.meter-tag{
+  width:14px;
+  font-family:'JetBrains Mono',monospace;
+  font-size:8px;
+  font-weight:500;
+  color:var(--textLo);
+  line-height:11px;
+  text-align:center;
+}
+
+/* segmentos del meter — 24 segmentos */
+.meter-seg{
+  flex:1;
+  height:11px;
+  background:#0a0c10;
+  border-radius:1px;
+}
+/* niveles encendidos (ejemplo estático) */
+.meter-seg.on-safe{ background:var(--safe); }
+.meter-seg.on-warn{ background:var(--warn); }
+.meter-seg.on-danger{ background:var(--danger); }
+
+/* =========================================================
+   KNOBS SECUNDARIOS — BODY/AIR y OUTPUT
+   ========================================================= */
+.knobs-row{
+  position:absolute;
+  top:310px;left:0;
+  width:400px;height:110px;
+}
+
+.knob-group{
+  position:absolute;
+  top:0;
+  width:180px;height:110px;
+}
+.knob-group.left{ left:20px; }
+.knob-group.right{ left:220px; }
+
+.knob-label{
+  position:absolute;
+  top:10px;left:0;
+  width:180px;
+  text-align:center;
+  font-family:'Barlow Condensed',sans-serif;
+  font-weight:600;
+  font-size:10px;
+  letter-spacing:3px;
+  text-transform:uppercase;
+  color:var(--textMid);
+}
+
+/* knob secundario — 70px */
+.knob{
+  position:absolute;
+  top:28px;
+  left:55px;           /* (180-70)/2 */
+  width:70px;height:70px;
+  border-radius:50%;
+  background:
+    radial-gradient(circle at 50% 42%,
+      #2a2d35 0%,
+      #1a1d23 40%,
+      #0f1116 80%,
+      #0a0c10 100%);
+  border:1px solid var(--hairNormal);
+  box-shadow:
+    0 3px 8px rgba(0,0,0,0.5),
+    inset 0 1px 0 rgba(255,255,255,0.05);
+}
+/* anillo metálico */
+.knob::before{
+  content:"";
+  position:absolute;
+  inset:-5px;
+  border-radius:50%;
+  background:
+    radial-gradient(circle at 50% 35%,
+      var(--metalHi) 0%,
+      var(--metalMid) 40%,
+      var(--metalLo) 75%,
+      #2a2c32 100%);
+  z-index:-1;
+}
+/* indicador — línea blanca fina */
+.knob::after{
+  content:"";
+  position:absolute;
+  left:50%;top:6px;
+  width:1.5px;height:16px;
+  margin-left:-0.75px;
+  background:var(--textHi);
+  border-radius:1px;
+  transform-origin:50% 29px;
+}
+.knob.left::after{ transform:rotate(0deg); }   /* centro = 0 bipolar */
+.knob.right::after{ transform:rotate(95deg); } /* ~70% unipolar */
+
+/* marca de centro para BODY/AIR (bipolar) */
+.knob-group.left .knob-center{
+  position:absolute;
+  top:60px;left:55px;
+  width:70px;height:1px;
+  background:var(--hairStrong);
+  pointer-events:none;
+}
+.knob-group.left .knob-center::before,
+.knob-group.left .knob-center::after{
+  content:"";
+  position:absolute;
+  top:-2px;
+  width:1px;height:5px;
+  background:var(--hairStrong);
+}
+.knob-group.left .knob-center::before{ left:0; }
+.knob-group.left .knob-center::after{ right:0; }
+
+/* valor numérico */
+.knob-value{
+  position:absolute;
+  top:82px;left:0;
+  width:180px;
+  text-align:center;
+  font-family:'JetBrains Mono',monospace;
+  font-weight:500;
+  font-size:13px;
+  letter-spacing:0.5px;
+  color:var(--textHi);
+}
+.knob-value .sign{ color:var(--textLo); }
+
+/* =========================================================
+   FOOTER — línea de estado
+   ========================================================= */
+.footer{
+  position:absolute;
+  bottom:0;left:0;
+  width:400px;height:40px;
+  background:linear-gradient(180deg,#07080b 0%,var(--inset) 100%);
+  border-top:1px solid var(--hairNormal);
+}
+.footer-text{
+  position:absolute;
+  top:0;left:0;
+  width:400px;height:40px;
+  line-height:40px;
+  text-align:center;
+  font-family:'JetBrains Mono',monospace;
+  font-weight:400;
+  font-size:10px;
+  letter-spacing:1.5px;
+  color:var(--textLo);
+  text-transform:uppercase;
+}
+.footer-text .dot{
+  display:inline-block;
+  margin:0 8px;
+  color:var(--hairStrong);
+}
+.footer-text .live{
+  color:var(--safe);
+}
+</style>
+</head>
+<body>
+
+<div id="opaline">
+
+  <!-- ===================== HEADER ===================== -->
+  <div class="header">
+    <div class="brand">
+      <div class="brand-name">OPALINE</div>
+      <div class="brand-sub">VOCAL POLISH</div>
+    </div>
+    <div class="btn btn-bypass">BYPASS</div>
+    <div class="btn btn-measure">MEASURE</div>
+  </div>
+
+  <!-- ===================== HERO: SHINE ===================== -->
+  <div class="hero">
+    <div class="hero-label">SHINE</div>
+    <div class="knob-hero"></div>
+    <div class="hero-value">0<span class="unit">%</span></div>
+  </div>
+
+  <!-- ===================== METERS IN / OUT ===================== -->
+  <div class="meters">
+
+    <div class="meter meter-in">
+      <div class="meter-label">IN</div>
+      <div class="meter-rows">
+        <div class="meter-row top">
+          <div class="meter-tag">L</div>
+          <!-- 23 segmentos: 16 safe + 4 warn + 3 danger apagados -->
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-warn"></div><div class="meter-seg on-warn"></div>
+          <div class="meter-seg on-warn"></div><div class="meter-seg on-warn"></div>
+          <div class="meter-seg"></div><div class="meter-seg"></div>
+          <div class="meter-seg"></div>
+        </div>
+        <div class="meter-row bot">
+          <div class="meter-tag">R</div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-warn"></div><div class="meter-seg on-warn"></div>
+          <div class="meter-seg on-warn"></div>
+          <div class="meter-seg"></div><div class="meter-seg"></div>
+          <div class="meter-seg"></div><div class="meter-seg"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="meter meter-out">
+      <div class="meter-label">OUT</div>
+      <div class="meter-rows">
+        <div class="meter-row top">
+          <div class="meter-tag">L</div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-warn"></div>
+          <div class="meter-seg"></div><div class="meter-seg"></div>
+          <div class="meter-seg"></div>
+        </div>
+        <div class="meter-row bot">
+          <div class="meter-tag">R</div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-safe"></div>
+          <div class="meter-seg on-safe"></div><div class="meter-seg on-warn"></div>
+          <div class="meter-seg"></div><div class="meter-seg"></div>
+          <div class="meter-seg"></div><div class="meter-seg"></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ===================== KNOBS SECUNDARIOS ===================== -->
+  <div class="knobs-row">
+
+    <div class="knob-group left">
+      <div class="knob-label">BODY / AIR</div>
+      <div class="knob"></div>
+      <div class="knob-center"></div>
+      <div class="knob-value"><span class="sign">±</span>0</div>
+    </div>
+
+    <div class="knob-group right">
+      <div class="knob-label">OUTPUT</div>
+      <div class="knob"></div>
+      <div class="knob-value">70<span class="unit" style="font-size:9px;color:var(--textLo);letter-spacing:2px;margin-left:3px">%</span></div>
+    </div>
+
+  </div>
+
+  <!-- ===================== FOOTER ===================== -->
+  <div class="footer">
+    <div class="footer-text">
+      44.1<span style="font-size:8px">kHz</span>
+      <span class="dot">·</span>
+      512<span style="font-size:8px">spl</span>
+      <span class="dot">·</span>
+      <span class="live">READY</span>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

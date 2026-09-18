@@ -39,8 +39,92 @@ void LedMeter::timerCallback()
 void LedMeter::paint (juce::Graphics& g)
 {
     const auto bounds = getLocalBounds().toFloat();
-    const float W = bounds.getWidth();
-    const float H = bounds.getHeight();
+
+    /* ── Modo panel (Opaline) ──
+       Geometría del diseño aprobado, 72×104 fijos:
+         título        (0,  0, 72, 11)
+         fila 1        (0, 20, 72, 16)   fila 2 (0, 44, 72, 16)
+           etiqueta    ( 0, +3, 12, 10)  mono 9px textDim
+           track       (14, +3, 58,  6)  inset, radius 3
+         graticule     (14, 66, 58,  4)  5 ticks
+         readout       ( 0, 76, 72, 24)  mono 10px, 2 líneas "L -6.2"
+       El relleno es una barra lisa con gradiente oscuro→color, y el color
+       sale del nivel REAL (neutro / warn ≥ −6 / danger ≥ 0) — no del estado
+       "medido", que es decorativo. */
+    if (compact)
+    {
+        float lvl[2] { 0.0f, 0.0f };
+        if (provider)
+        {
+            auto [l, r] = provider();
+            lvl[0] = l; lvl[1] = r;
+        }
+
+        constexpr float chX    = 0.0f;
+        constexpr float trackX = 14.0f;
+        constexpr float trackW = 58.0f;
+        constexpr float trackH = 6.0f;
+        constexpr float rowY[2] { 20.0f, 44.0f };
+        constexpr float rad    = 3.0f;
+
+        /* Título IN / OUT */
+        g.setFont (font ({ FontId::Barlow, 11.0f, 0.16f, false, true, 600 }));
+        g.setColour (Colour (textMid));
+        g.drawText (title, 0, 0, 72, 11, juce::Justification::centredLeft, false);
+
+        for (int i = 0; i < 2; ++i)
+        {
+            const float t = levelToDb (lvl[i]);
+            smooth[i] += (t - smooth[i]) * (t > smooth[i] ? 0.55f : 0.12f);
+            const float db = smooth[i];
+            const float y  = rowY[i];
+
+            /* Etiqueta de canal */
+            g.setFont (font ({ FontId::Mono, 9.0f, 0.0f, false, false, 400 }));
+            g.setColour (Colour (textDim));
+            g.drawText (labels[i], (int) chX, (int) y + 3, 12, 10,
+                        juce::Justification::centredLeft, false);
+
+            /* Track */
+            const juce::Rectangle<float> tr (trackX, y + 3.0f, trackW, trackH);
+            g.setColour (Colour (inset));
+            g.fillRoundedRectangle (tr, rad);
+
+            /* Relleno: gradiente oscuro → color por nivel */
+            const float norm = juce::jlimit (0.0f, 1.0f, (db - DB_MIN) / (DB_MAX - DB_MIN));
+            const float fw   = trackW * norm;
+            if (fw > 0.5f)
+            {
+                const Colour tip = db >= 0.0f ? Colour (cDanger)
+                                 : db >= -6.0f ? Colour (cWarn)
+                                               : Colour (textMid);
+                juce::ColourGradient fill (Colour (panelMid), tr.getX(), tr.getY(),
+                                           tip, tr.getRight(), tr.getY(), false);
+                g.setGradientFill (fill);
+                g.fillRoundedRectangle (tr.withWidth (juce::jmax (trackH, fw)), rad);
+            }
+        }
+
+        /* Graticule de escala bajo las barras */
+        g.setColour (lineStrong());
+        for (float dx : { 0.0f, 14.0f, 29.0f, 44.0f, 57.0f })
+            g.fillRect (trackX + dx, 66.0f, 1.0f, 4.0f);
+
+        /* Readout de dB por canal */
+        g.setFont (font ({ FontId::Mono, 10.0f, 0.0f, false, false, 400 }));
+        g.setColour (Colour (textMid));
+        for (int i = 0; i < 2; ++i)
+        {
+            const float db = smooth[i];
+            const juce::String txt = labels[i] + " "
+                + (db <= DB_MIN
+                       ? juce::String ("-") + juce::String::charToString ((juce::juce_wchar) 0x221E)
+                       : juce::String (db, 1));
+            g.drawText (txt, 0, (int) (76 + i * 12), 72, 12,
+                        juce::Justification::centredLeft, false);
+        }
+        return;
+    }
 
     /* Wrap: inset + borde hairline (el inner-shadow CSS se aproxima con
        un gradiente superior sutil). */

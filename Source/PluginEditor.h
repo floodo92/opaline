@@ -4,56 +4,68 @@
 #include "UI/LedMeter.h"
 #include "UI/Module.h"
 
-/* Editor de OPALINE — rediseño compacto "one-knob" (serie free).
-   Canvas cuadrado 410×440:
+/* Editor de OPALINE — rediseño "instrumento de precisión" (serie free).
+   Canvas 400×460 (coords de diseño; el editor escala la Frame como unidad):
      ┌──────────────────────────────┐
-     │  OPALINE          MEAS  BYP  │   52  header
-     │  [ IN meter ]  [ OUT meter ] │   58  meters
-     │         ┌────────┐           │
-     │         │ SHINE  │           │   hero
-     │         └────────┘           │
-     │   BODY/AIR        OUTPUT     │   knobs
-     │   voice calibrated           │   status
+     │ OPALINE        [BYPASS][MEAS] │  header #0e1013 sobre canvas #060708
+     │ VOCAL POLISH                  │
+     ├──────────────────────────────┤
+     │  IN ▬▬          OUT ▬▬       │  meters 72×104 (título + L/R + dB)
+     │         ╭──────╮             │
+     │         │SHINE │             │  hero: pocillo + disco de acero
+     │         ╰──────╯             │         + índices + arco de valor
+     │  BODY/AIR        OUTPUT       │
+     │ 48.0 kHz · STEREO   ● READY  │  footer inset
      └──────────────────────────────┘
-   Todo vive en coords de diseño; el editor escala la Frame como unidad. */
+   Geometría exacta y por qué: ver opaline_design.html (fuente de verdad). */
 
-/* Look & feel de los botones tipo "pill" (MEASURE / BYPASS). Pequeño,
-   específico del editor: no toca el sistema de marca global. */
+/* Look & feel de los botones del header (MEASURE / BYPASS).
+   Placa plana grafito + hairline, sin relieve. El estado activo sube un
+   escalón la superficie y enciende el sheen ópalo de 24x2 en el borde
+   superior: es la ÚNICA concesión de marca del layout. */
 class OpalineButtonsLAF : public juce::LookAndFeel_V4
 {
 public:
     void drawButtonBackground (juce::Graphics& g, juce::Button& b,
                                const juce::Colour&, bool hover, bool) override
     {
-        const bool on  = b.getToggleState();
-        const bool acc = b.getComponentID() == "measure";
-        auto r = b.getLocalBounds().toFloat().reduced (1.0f);
+        const bool on = b.getToggleState();
+        auto r = b.getLocalBounds().toFloat().reduced (0.5f);
 
-        g.setColour (on ? (acc ? floodo::brand::accentAlpha (0.26f)
-                               : juce::Colour (floodo::brand::cSafe).withAlpha (0.20f))
-                        : juce::Colour (floodo::brand::raised));
+        g.setColour (on ? juce::Colour (floodo::brand::panelMid)
+                        : juce::Colour (floodo::brand::panel));
         g.fillRoundedRectangle (r, floodo::brand::rSm);
-        if (hover)
+
+        if (hover && ! on)
         {
-            g.setColour (floodo::brand::accentAlpha (0.10f));
+            g.setColour (juce::Colours::white.withAlpha (0.04f));
             g.fillRoundedRectangle (r, floodo::brand::rSm);
         }
-        g.setColour (on ? (acc ? floodo::brand::accent()
-                               : juce::Colour (floodo::brand::cSafe))
-                        : floodo::brand::lineStrong());
+
+        /* Sheen ópalo — 24x2 px centrado en el borde superior */
+        if (on)
+        {
+            juce::Rectangle<float> bar (r.getCentreX() - 12.0f, r.getY(), 24.0f, 2.0f);
+            juce::ColourGradient sg (floodo::brand::opalCold(), bar.getX(), bar.getY(),
+                                     floodo::brand::opalWarm(), bar.getRight(), bar.getY(), false);
+            sg.addColour (0.55, floodo::brand::accent());
+            g.setGradientFill (sg);
+            g.fillRoundedRectangle (bar, 1.0f);
+        }
+
+        g.setColour (on ? floodo::brand::lineStrong() : floodo::brand::line());
         g.drawRoundedRectangle (r, floodo::brand::rSm, 1.0f);
     }
 
     void drawButtonText (juce::Graphics& g, juce::TextButton& b,
-                         bool hover, bool) override
+                         bool, bool) override
     {
-        const bool on  = b.getToggleState();
-        const bool acc = b.getComponentID() == "measure";
-        g.setFont (floodo::brand::font (floodo::brand::tDisplaySM()));
-        g.setColour (on ? (acc ? floodo::brand::accent()
-                               : juce::Colour (floodo::brand::cSafe))
-                        : (hover ? juce::Colours::white.withAlpha (0.8f)
-                                 : juce::Colour (floodo::brand::textMid)));
+        /* Inter sólo tiene la instancia 400 disponible (fuente variable):
+           el 500 del diseño cae a 400. */
+        g.setFont (floodo::brand::font ({ floodo::brand::FontId::Inter, 9.0f,
+                                          0.08f, false, true, 500 }));
+        g.setColour (b.getToggleState() ? juce::Colour (floodo::brand::textHi)
+                                        : juce::Colour (floodo::brand::textMid));
         g.drawText (b.getButtonText(), b.getLocalBounds(),
                     juce::Justification::centred, false);
     }
@@ -78,14 +90,20 @@ private:
 
         OpalineAudioProcessorEditor& ed;
 
+        /* size + pad(8)*2 = canvas: hero 156, chicos 72 */
         floodo::brand::Knob shineKnob  { 140 };
-        floodo::brand::Knob bodyAirKnob{ 84 };
-        floodo::brand::Knob outputKnob { 84 };
+        floodo::brand::Knob bodyAirKnob{ 56 };
+        floodo::brand::Knob outputKnob { 56 };
         floodo::brand::LedMeter inMeter, outMeter;
 
         juce::TextButton measureBtn;
         juce::TextButton bypassBtn;
-        juce::Label measureStatus;
+
+        /* Footer: izquierda = dato real de sesión, derecha = estado del MEASURE
+           (pintado a mano: dot de color + texto). */
+        juce::Label  measureStatus;
+        juce::String statusRight  { "READY" };
+        juce::Colour statusColour { juce::Colour (floodo::brand::textLo) };
 
         std::unique_ptr<floodo::brand::KnobAttachment> shineAtt, bodyAirAtt, outputAtt;
         std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAtt;
@@ -95,7 +113,7 @@ private:
     void measurePressed();
     void timerCallback() override;
     void positionShineForProfile();
-    void updateMeasureStatus();
+    void updateFooter();
 
     OpalineAudioProcessor& proc;
     Frame frame;

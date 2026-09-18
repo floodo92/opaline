@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Opaline — diseño (base para port a JUCE)</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ============================================================
+   OPALINE — diseño de referencia
+   Restricción: todo debe ser implementable con juce::Graphics.
+   Prohibido: backdrop-filter, filter, mix-blend-mode, conic-gradient,
+   ruido, animaciones, sombras apiladas, 3D.
+   ============================================================ */
+
+/* 0. Reset & canvas — 400x460 exacto */
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:400px;height:460px;overflow:hidden;background:#060708}
+
+/* 1. Contenedor raíz */
+#opaline{
+  position:relative;
+  width:400px;height:460px;
+  overflow:hidden;
+  background:#060708;
+}
+
+/* ------------------------------------------------------------
+   FIX 5: el header se separaba del canvas solo por un hairline.
+   Ahora usa el token `surface` (#0e1013) para tener un escalón
+   real de jerarquía: canvas #060708 < header #0e1013 < panel #12151a.
+   ------------------------------------------------------------ */
+.op-header{
+  position:absolute;top:0;left:0;
+  width:400px;height:52px;
+  background:#0e1013;
+  border-bottom:1px solid rgba(255,255,255,0.095);
+}
+
+.brand-block{position:absolute;left:14px;top:10px;width:140px;height:32px}
+.brand-opaline{
+  position:absolute;left:0;top:0;
+  font-family:"Barlow Condensed",sans-serif;
+  font-weight:600;font-size:18px;line-height:18px;
+  letter-spacing:0.14em;
+  color:#eceef1;text-transform:uppercase;
+}
+/* FIX 2: era #5a626c (3.3:1) -> --text-dim (4.95:1) */
+.brand-sub{
+  position:absolute;left:0;top:20px;
+  font-family:"Inter",sans-serif;
+  font-weight:400;font-size:9px;line-height:10px;
+  letter-spacing:0.18em;
+  color:#7b838d;text-transform:uppercase;
+}
+
+/* 2b. Botones del header */
+.btn{
+  position:absolute;top:12px;
+  width:62px;height:28px;
+  background:#12151a;
+  border:1px solid rgba(255,255,255,0.095);
+  border-radius:5px;
+  font-family:"Inter",sans-serif;
+  font-weight:500;font-size:9px;
+  letter-spacing:0.08em;
+  color:#9aa1ab;text-transform:uppercase;
+  display:flex;align-items:center;justify-content:center;
+  user-select:none;
+}
+/* FIX 3: MEASURE terminaba en x394 y el panel en x392 (2px de overhang).
+   Ahora ambos botones cierran exactos contra el borde derecho del panel. */
+.btn-bypass{left:262px}
+.btn-measure{left:330px}
+
+/* estado activo — sheen ópalo sutil (única concesión de marca) */
+.btn.is-active{
+  background:#181b21;
+  border-color:rgba(255,255,255,0.17);
+  color:#eceef1;
+}
+.btn.is-active::before{
+  content:"";position:absolute;top:-1px;left:50%;margin-left:-12px;
+  width:24px;height:2px;border-radius:1px;
+  background:linear-gradient(90deg,#9fb8e8 0%,#cfc6f2 55%,#e8c8a8 100%);
+}
+
+/* 3. Panel principal — única box-shadow permitida */
+/* FIX 1: medía 352px y terminaba en y404, dejando 56px (12%) de canvas
+   vacío abajo. Ahora 400px -> termina en y452, margen 8px como los lados. */
+.main-panel{
+  position:absolute;top:52px;left:8px;
+  width:384px;height:400px;
+  background:#12151a;
+  border:1px solid rgba(255,255,255,0.055);
+  border-radius:10px;
+  box-shadow:0 8px 16px rgba(0,0,0,0.5);
+  overflow:hidden;
+}
+
+/* 4. Knob SHINE (hero) — 156px */
+.knob-hero-wrap{position:absolute;top:22px;left:114px;width:156px;height:184px}
+.knob-hero{
+  position:absolute;top:0;left:0;
+  width:156px;height:156px;border-radius:50%;
+  background:radial-gradient(circle at 34% 30%,#242831 0%,#1d2129 48%,#15181e 100%);
+  border:1px solid rgba(255,255,255,0.095);
+}
+/* FIX 6: el metal era un linear-gradient vertical puro y leía plano.
+   Se agrega una luz radial en 34%/28% (dos fills en JUCE: radial + linear). */
+.knob-hero-metal{
+  position:absolute;top:10px;left:10px;
+  width:134px;height:134px;border-radius:50%;
+  background:
+    radial-gradient(circle at 34% 28%,rgba(255,255,255,0.30) 0%,rgba(255,255,255,0.07) 34%,rgba(255,255,255,0) 58%),
+    linear-gradient(180deg,#a9a9b3 0%,#75757f 52%,#484852 100%);
+}
+.knob-hero-inset{
+  position:absolute;top:13px;left:13px;
+  width:128px;height:128px;border-radius:50%;
+  background:radial-gradient(circle at 38% 32%,#22252e 0%,#1d2129 60%,#13161c 100%);
+  border:1px solid rgba(255,255,255,0.055);
+}
+.knob-hero-dot{
+  position:absolute;top:50%;left:50%;
+  width:6px;height:6px;margin-left:-3px;margin-top:-3px;
+  border-radius:50%;background:#0e1013;
+  border:1px solid rgba(255,255,255,0.095);
+}
+.knob-hero-indicator{
+  position:absolute;top:50%;left:50%;
+  width:2px;height:54px;margin-left:-1px;margin-top:-54px;
+  background:rgba(255,255,255,0.9);border-radius:1px;
+  transform-origin:1px 54px;
+  transform:rotate(-135deg);
+}
+.knob-hero-wrap.is-active .knob-hero-indicator::after{
+  content:"";position:absolute;top:0;left:0;
+  width:2px;height:24px;border-radius:1px;
+  background:linear-gradient(180deg,#9fb8e8 0%,#cfc6f2 55%,#e8c8a8 100%);
+  opacity:0.6;
+}
+.knob-hero-label{
+  position:absolute;top:162px;left:0;width:156px;text-align:center;
+  font-family:"Barlow Condensed",sans-serif;
+  font-weight:600;font-size:13px;line-height:13px;
+  letter-spacing:0.16em;color:#eceef1;text-transform:uppercase;
+}
+.knob-hero-value{
+  position:absolute;top:178px;left:0;width:156px;text-align:center;
+  font-family:"JetBrains Mono",monospace;
+  font-weight:500;font-size:22px;line-height:22px;
+  color:#eceef1;letter-spacing:-0.02em;
+}
+.knob-hero-sub{
+  position:absolute;top:202px;left:0;width:156px;text-align:center;
+  font-family:"JetBrains Mono",monospace;
+  font-weight:400;font-size:11px;line-height:11px;color:#9aa1ab;
+}
+
+/* 5. Meters IN / OUT */
+/* FIX 4: eran barras de 4x42 sin escala — casi decorativas, cuando el
+   brief pide que los meters carguen el mayor peso visual. Ahora: 72px de
+   ancho, barra de 6px, título 11px/600 y graticule de escala debajo. */
+.meter{position:absolute;top:24px;width:72px;height:104px}
+.meter-in{left:16px}
+.meter-out{left:296px}
+
+.meter-title{
+  position:absolute;top:0;left:0;width:72px;
+  font-family:"Barlow Condensed",sans-serif;
+  font-weight:600;font-size:11px;line-height:11px;
+  letter-spacing:0.16em;color:#9aa1ab;text-transform:uppercase;
+}
+.meter-row{position:absolute;left:0;width:72px;height:16px}
+.meter-row-1{top:20px}
+.meter-row-2{top:44px}
+
+.meter-ch{
+  position:absolute;left:0;top:3px;width:12px;height:10px;
+  font-family:"JetBrains Mono",monospace;
+  font-weight:400;font-size:9px;line-height:10px;color:#7b838d;
+}
+.meter-track{
+  position:absolute;left:14px;top:3px;
+  width:58px;height:6px;
+  background:#050607;border-radius:3px;overflow:hidden;
+}
+.meter-fill{
+  position:absolute;left:0;top:0;height:6px;border-radius:3px;
+  background:linear-gradient(90deg,#181b21 0%,#9aa1ab 100%);
+}
+.meter-fill.in-l{width:74%}
+.meter-fill.in-r{width:76%}
+.meter-fill.out-l{width:62%}
+.meter-fill.out-r{width:64%}
+
+/* graticule de escala bajo la barra */
+.meter-scale{position:absolute;top:66px;left:14px;width:58px;height:4px}
+.meter-tick{position:absolute;top:0;width:1px;height:4px;background:rgba(255,255,255,0.17)}
+.meter-tick.t0{left:0}
+.meter-tick.t1{left:14px}
+.meter-tick.t2{left:29px}
+.meter-tick.t3{left:44px}
+.meter-tick.t4{left:57px}
+
+/* estado medido — pasa a safe / warn */
+.meter.is-measured .meter-fill.in-l,
+.meter.is-measured .meter-fill.in-r{
+  background:linear-gradient(90deg,#1a2a24 0%,#52c49a 100%);
+}
+.meter.is-measured .meter-fill.out-l,
+.meter.is-measured .meter-fill.out-r{
+  background:linear-gradient(90deg,#2a2318 0%,#e0ad5a 100%);
+}
+
+.meter-values{
+  position:absolute;top:76px;left:0;width:72px;
+  font-family:"JetBrains Mono",monospace;
+  font-weight:400;font-size:10px;line-height:12px;
+  color:#9aa1ab;letter-spacing:-0.01em;
+}
+.meter-values b{font-weight:500;color:#9aa1ab}
+
+/* 6. Knobs pequeños BODY/AIR y OUTPUT — 72px */
+/* FIX 1b: bajados de top:230 a top:248. El texto "0%" del hero terminaba
+   en y235 y los knobs empezaban en y230 -> colisión de 5px. */
+.knob-small-wrap{position:absolute;top:248px;width:72px;height:98px}
+.knob-small-wrap.body-air{left:68px}
+.knob-small-wrap.output{left:244px}
+
+.knob-small{
+  position:absolute;top:0;left:0;
+  width:72px;height:72px;border-radius:50%;
+  background:radial-gradient(circle at 36% 32%,#242831 0%,#1d2129 55%,#15181e 100%);
+  border:1px solid rgba(255,255,255,0.095);
+}
+/* FIX 6 (mismo criterio que el hero) */
+.knob-small-metal{
+  position:absolute;top:5px;left:5px;
+  width:60px;height:60px;border-radius:50%;
+  background:
+    radial-gradient(circle at 36% 30%,rgba(255,255,255,0.28) 0%,rgba(255,255,255,0.06) 36%,rgba(255,255,255,0) 60%),
+    linear-gradient(180deg,#a9a9b3 0%,#75757f 50%,#484852 100%);
+}
+.knob-small-inset{
+  position:absolute;top:7px;left:7px;
+  width:56px;height:56px;border-radius:50%;
+  background:radial-gradient(circle at 38% 34%,#232731 0%,#1d2129 62%,#14171d 100%);
+  border:1px solid rgba(255,255,255,0.055);
+}
+.knob-small-dot{
+  position:absolute;top:50%;left:50%;
+  width:4px;height:4px;margin-left:-2px;margin-top:-2px;
+  border-radius:50%;background:#0e1013;
+  border:1px solid rgba(255,255,255,0.095);
+}
+.knob-small-indicator{
+  position:absolute;top:50%;left:50%;
+  width:2px;height:26px;margin-left:-1px;margin-top:-26px;
+  background:rgba(236,238,241,0.92);border-radius:1px;
+  transform-origin:1px 26px;
+}
+.knob-small-indicator.body{transform:rotate(0deg)}
+.knob-small-indicator.out{transform:rotate(18deg)}
+
+/* marca central bipolar para BODY / AIR */
+.knob-center-mark{
+  position:absolute;top:4px;left:50%;
+  width:1px;height:8px;margin-left:-0.5px;
+  background:rgba(255,255,255,0.17);border-radius:0.5px;
+}
+
+.knob-small-label{
+  position:absolute;top:78px;left:0;width:72px;text-align:center;
+  font-family:"Barlow Condensed",sans-serif;
+  font-weight:500;font-size:10px;line-height:10px;
+  letter-spacing:0.12em;color:#9aa1ab;text-transform:uppercase;
+  white-space:nowrap;
+}
+.knob-small-value{
+  position:absolute;top:90px;left:0;width:72px;text-align:center;
+  font-family:"JetBrains Mono",monospace;
+  font-weight:400;font-size:13px;line-height:13px;color:#eceef1;
+}
+
+/* 7. Footer de estado — inset */
+.footer{
+  position:absolute;bottom:0;left:0;right:0;
+  height:28px;background:#050607;
+  border-top:1px solid rgba(255,255,255,0.095);
+}
+.footer-left{
+  position:absolute;left:14px;top:9px;
+  font-family:"Inter",sans-serif;
+  font-weight:400;font-size:9px;line-height:10px;
+  letter-spacing:0.06em;color:#7b838d;text-transform:uppercase;
+}
+.footer-right{
+  position:absolute;right:14px;top:10px;height:10px;
+  display:flex;align-items:center;gap:6px;
+}
+.footer-dot{width:4px;height:4px;border-radius:50%;background:#52c49a}
+.footer-right-text{
+  font-family:"Inter",sans-serif;
+  font-weight:500;font-size:8px;line-height:8px;
+  letter-spacing:0.08em;color:#7b838d;text-transform:uppercase;
+}
+
+/* 8. Tokens */
+:root{
+  --bg:#060708;
+  --surface:#0e1013;
+  --panel:#12151a;
+  --panelMid:#181b21;
+  --raised:#1d2129;
+  --inset:#050607;
+  --accent:#cfc6f2;
+  --opalWarm:#e8c8a8;
+  --opalCold:#9fb8e8;
+  --textHi:#eceef1;
+  --textMid:#9aa1ab;
+  --textDim:#7b838d;
+  --textLo:#5a626c;
+  --safe:#52c49a;
+  --warn:#e0ad5a;
+  --danger:#e06a6a;
+  --metal-hi:#a9a9b3;
+  --metal-mid:#75757f;
+  --metal-lo:#484852;
+  --hair-faint:rgba(255,255,255,0.055);
+  --hair-normal:rgba(255,255,255,0.095);
+  --hair-strong:rgba(255,255,255,0.17);
+  --radius-3:3px;
+  --radius-5:5px;
+  --radius-8:8px;
+  --radius-10:10px;
+}
+</style>
+</head>
+<body>
+
+<div id="opaline">
+
+  <!-- Header -->
+  <div class="op-header">
+    <div class="brand-block">
+      <div class="brand-opaline">OPALINE</div>
+      <div class="brand-sub">VOCAL POLISH</div>
+    </div>
+    <div class="btn btn-bypass">BYPASS</div>
+    <div class="btn btn-measure is-active">MEASURE</div>
+  </div>
+
+  <!-- Panel -->
+  <div class="main-panel">
+
+    <!-- Meter IN -->
+    <div class="meter meter-in">
+      <div class="meter-title">IN</div>
+      <div class="meter-row meter-row-1">
+        <div class="meter-ch">L</div>
+        <div class="meter-track"><div class="meter-fill in-l"></div></div>
+      </div>
+      <div class="meter-row meter-row-2">
+        <div class="meter-ch">R</div>
+        <div class="meter-track"><div class="meter-fill in-r"></div></div>
+      </div>
+      <div class="meter-scale">
+        <div class="meter-tick t0"></div>
+        <div class="meter-tick t1"></div>
+        <div class="meter-tick t2"></div>
+        <div class="meter-tick t3"></div>
+        <div class="meter-tick t4"></div>
+      </div>
+      <div class="meter-values">L -6.2<br>R -5.8</div>
+    </div>
+
+    <!-- Meter OUT -->
+    <div class="meter meter-out">
+      <div class="meter-title">OUT</div>
+      <div class="meter-row meter-row-1">
+        <div class="meter-ch">L</div>
+        <div class="meter-track"><div class="meter-fill out-l"></div></div>
+      </div>
+      <div class="meter-row meter-row-2">
+        <div class="meter-ch">R</div>
+        <div class="meter-track"><div class="meter-fill out-r"></div></div>
+      </div>
+      <div class="meter-scale">
+        <div class="meter-tick t0"></div>
+        <div class="meter-tick t1"></div>
+        <div class="meter-tick t2"></div>
+        <div class="meter-tick t3"></div>
+        <div class="meter-tick t4"></div>
+      </div>
+      <div class="meter-values">L -3.1<br>R -2.9</div>
+    </div>
+
+    <!-- Knob SHINE (hero) -->
+    <div class="knob-hero-wrap is-active">
+      <div class="knob-hero">
+        <div class="knob-hero-metal"></div>
+        <div class="knob-hero-inset"></div>
+        <div class="knob-hero-indicator"></div>
+        <div class="knob-hero-dot"></div>
+      </div>
+      <div class="knob-hero-label">SHINE</div>
+      <div class="knob-hero-value">0</div>
+      <div class="knob-hero-sub">0%</div>
+    </div>
+
+    <!-- Knob BODY / AIR (bipolar) -->
+    <div class="knob-small-wrap body-air">
+      <div class="knob-small">
+        <div class="knob-small-metal"></div>
+        <div class="knob-small-inset"></div>
+        <div class="knob-center-mark"></div>
+        <div class="knob-small-indicator body"></div>
+        <div class="knob-small-dot"></div>
+      </div>
+      <div class="knob-small-label">BODY / AIR</div>
+      <div class="knob-small-value">0</div>
+    </div>
+
+    <!-- Knob OUTPUT -->
+    <div class="knob-small-wrap output">
+      <div class="knob-small">
+        <div class="knob-small-metal"></div>
+        <div class="knob-small-inset"></div>
+        <div class="knob-small-indicator out"></div>
+        <div class="knob-small-dot"></div>
+      </div>
+      <div class="knob-small-label">OUTPUT</div>
+      <div class="knob-small-value">70</div>
+    </div>
+
+    <!-- Footer de estado -->
+    <div class="footer">
+      <div class="footer-left">READY · 44.1 kHz · STEREO</div>
+      <div class="footer-right">
+        <div class="footer-dot"></div>
+        <div class="footer-right-text">IN / OUT LINKED</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+</body>
+</html>

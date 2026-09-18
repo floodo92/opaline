@@ -1,11 +1,11 @@
-# OPALINE — contexto del proyecto (regenerado 2026-09-17)
+# OPALINE — contexto del proyecto (regenerado 2026-09-18)
 
 Polisher vocal de un knob, serie free de Flodo's Audio Labs. VST3/Windows, JUCE nativo.
 
 ## Estado actual (build instalada)
 - Build Release `Opaline_VST3` con **UI rediseñada compacta cuadrada** tipo one-knob free.
 - Instalada en `C:\Program Files\Common Files\VST3\Opaline.vst3`.
-- Hash SHA-256: `9A7D601683A96455DEF7013A920E227EE0AE4D894CAA8808B2901097B8339AE4`.
+- Hash SHA-256: `0A93A393EEA80C465288C8F54C9FD0C81177EA5ACE8B7EA62B5BA21167AA1E6C`.**CURVA MONÓTONA**: sin knee (0.22+0.14·(1−amount), ratio 1+2.5·amount), exciter drive 3.6 mix 0.85, presence 3.5/air 2.5, de-esser ceil −(0.35+2.2·amount).
 - Validado con `pluginval --validate-in-process --strictness-level 10` → **SUCCESS** (bloques 64–1024, 48k/96k).
 - Selftest de consola (`Build_Selftest\Release\DspSelfTest.exe`) → **PASS** (cadena audible, exit 0).
 
@@ -22,6 +22,15 @@ Polisher vocal de un knob, serie free de Flodo's Audio Labs. VST3/Windows, JUCE 
 - **BYPASS** ahora tiene botón en la UI (parámetro existía, faltaba control). Toggle estilo "pill" con LAF local `OpalineButtonsLAF` (measure accent ópalo, bypass verde `cSafe`); sin tocar el sistema de marca global.
 
 ## DSP — mejora aplicada
+- **CURVA >4k MONÓTONA CON SHINE** (2026-09-18, punto 1): antes el brillo >4k era **anti-monótono** (−4.9 dB a Shine 100%: la compresión apagaba el aire). Rebalanceo de energías:
+  - Óptico con **knee C1 6 dB** (patrón del de-esser) y tier más suave: `thr = 0.22+0.14·(1−amount)` (antes 0.18+0.18), `ratio = 1+2.5·amount` (antes 1+3.5).
+  - **Exciter drive 3.6 / mix 0.85** (antes 3.2/0.55) — el exciter ahora DOMINA sobre la reducción.
+  - **Presence base 3.5** y **air shelf 2.5·(1.5−body)** (antes 2.0/0.6).
+  - De-esser más suave: `ceilDb = −(0.35+2.2·amount) − 0.12·sibExcessDb` (antes −(1+4·amount) − 0.25).
+  - Resultado selftest BRIGHTNESS: −0.11 → +0.58 → +1.08 → +1.27 → **+1.32 dB** (sube SIEMPRE con Shine).
+- **Soft-clip de salida** (punto 2): `softClipBlock` tras el paralelo, knee C0-continua `y = x` hasta −2.5 dBFS y `start+range·tanh(over/range)` con asíntota 0 dBFS (protege de overs cerca de 0 dBFS sin distorsión dura).
+- **Detectores linked estéreo** (punto 4): Óptico y ResonanceSuppressor usan `max(canal0, canal1)` (patrón `jmax(abs(d0), abs(d1))`; si `ch≤1` el segundo puntero es 0 → mono degenera igual). Balance estéreo ya no camina con el GR.
+- **Smoothing del GR del supresor** (punto 5): `grSm` `LinearSmoothedValue` ~20 ms (antes `over*10` bruto por bloque → zipper).
 - **Oversampling 2× en el exciter armónico** (`VoiceChain::HarmonicExciter`) con `juce::dsp::Oversampling<float>` half-band polyphase IIR:
   - Reduce el aliasing de los armónicos del tanh (banda >3 kHz) → menos "gris" y brillo más limpio a Shine alto.
   - API JUCE 8: `initProcessing` + `processSamplesUp/processSamplesDown` sobre `AudioBlock`. El HP 3 kHz se prepara a la tasa oversampleada (2×).
@@ -32,7 +41,7 @@ Polisher vocal de un knob, serie free de Flodo's Audio Labs. VST3/Windows, JUCE 
     - Se mantiene siempre por debajo del fundamental detectado (con margen) para evitar comerse el cuerpo de voces graves
     - Actualizado dinámicamente cuando el Learn produce un perfil válido
     - Evita que voces barítonas pierdan fundamental con HPF fijo en 85 Hz
-- Nota: el indicador BRIGHTNESS del selftest baja monótonamente con Shine (−5.4 dB a 100%) porque la señal sintética es 100% sibilancia en la banda alta y el de-esser la domea (trabaja bien); en voz real el brillo lo ponen exciter/air sobre contenido no sibilante.
+- Nota: la señal sintética del selftest incluye ráfagas de sibilancia pura que el de-esser domea; por eso BRIGHTNESS al 100% ya no mide "gris" sino el balance neto (ahora positivo/monótono tras el rebalanceo).
 
 ## De-Esser rediseñado (techo relativo al cuerpo, 2026-09-17)
 **Diseño final** (`VoiceChain::DeEsser`, regla Paco Rincón: la "S" nunca supera el cuerpo 500-1k):
@@ -72,7 +81,7 @@ Búsqueda de skills "no genéricos" de JUCE y UI. Veredicto: el skill `juce` pro
 - No clonar: `juce-webview-plugin-skill` (UI WebView, no aplica), `plugindev-plugin` (Rust), plugin pago `juce-dev` (generouscorp).
 
 ## Repo git
-Repo local en esta carpeta (`Opaline/`), creado con `git init` + `.gitignore` (excluye `Build*`, `opaline_preview.png`, artefactos). Commit inicial del estado actual. **UNCOMMITTED**: Source/DSP/VoiceChain.{h,cpp} (HPF adaptativo + de-esser), Source/PluginProcessor.{h,cpp} (bypass con latencia + persistencia) — el binario instalado ya incluye estos cambios (hash `9A7D6016...`).
+Repo local en esta carpeta (`Opaline/`), creado con `git init` + `.gitignore` (excluye `Build*`, `opaline_preview.png`, artefactos). Commit inicial + commits de DSP (HPF adaptativo + de-esser + bypass con latencia + persistencia y el rebalanceo de curva del 18-sep). **UNCOMMITTED hasta el siguiente commit**: los cambios DSP del 18-sep (curva, soft-clip, knee óptico, linked, grSm) — el binario instalado ya los incluye (hash `0A93A393...`).
 
 ## Regla del triángulo espectral (Paco Rincón)
 Protagonistas 500–1000 Hz = B; graves ~200 = B−5; agudos = B−5; sibilancias = B−5..B.

@@ -108,8 +108,9 @@ private:
         void prepare (double sr, int block, int nch);
         void reset();
         float process (juce::AudioBuffer<float>& b, float amount, float centre);
-        juce::dsp::IIR::Filter<float> detect, res;
+        juce::dsp::IIR::Filter<float> detect[2], res[2];
         EnvFollower env;
+        juce::LinearSmoothedValue<float> grSm { 0.0f };
         double sampleRate = 0; int nch = 2;
         float lastCentre = -1.0f;
     };

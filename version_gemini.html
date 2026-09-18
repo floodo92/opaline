@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Opaline UI Redesign</title>
+  <!-- Fuentes permitidas cargadas desde Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+
+  <style>
+    /* ==========================================================================
+       0. RESET & BASE
+       ========================================================================== */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      background-color: #000000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      font-family: 'Inter', sans-serif;
+    }
+
+    /* ==========================================================================
+       1. CONTENEDOR RAÍZ (CANVAS FIJO 400x460)
+       ========================================================================== */
+    #opaline {
+      width: 400px;
+      height: 460px;
+      position: relative;
+      overflow: hidden;
+      background-color: #060708;
+      border: 1px solid rgba(255, 255, 255, 0.095);
+      /* Única sombra permitida (difusión sutil ≤ 16px) */
+      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.6);
+    }
+
+    /* Background Gradient base (Glow radial central sutilissimo para profundidad) */
+    .bg-gradient {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 400px;
+      height: 460px;
+      background: radial-gradient(circle at 50% 35%, #0e1013 0%, #060708 70%);
+      pointer-events: none;
+    }
+
+    /* ==========================================================================
+       2. HEADER SECTION (Y: 0..58)
+       ========================================================================== */
+    .header-panel {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 400px;
+      height: 58px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.055);
+      background: linear-gradient(180deg, #12151a 0%, #0e1013 100%);
+    }
+
+    .brand-title {
+      position: absolute;
+      top: 14px;
+      left: 18px;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 700;
+      font-size: 20px;
+      line-height: 18px;
+      letter-spacing: 2.5px;
+      color: #eceef1;
+      text-transform: uppercase;
+    }
+
+    .brand-subtitle {
+      position: absolute;
+      top: 33px;
+      left: 18px;
+      font-family: 'Inter', sans-serif;
+      font-weight: 600;
+      font-size: 8px;
+      line-height: 8px;
+      letter-spacing: 1.8px;
+      color: #9aa1ab;
+      text-transform: uppercase;
+    }
+
+    /* Header Controls (Buttons) */
+    .btn-header {
+      position: absolute;
+      top: 16px;
+      height: 26px;
+      background: linear-gradient(180deg, #1d2129 0%, #12151a 100%);
+      border: 1px solid rgba(255, 255, 255, 0.095);
+      border-radius: 3px;
+      color: #9aa1ab;
+      font-family: 'Inter', sans-serif;
+      font-weight: 600;
+      font-size: 9px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .btn-bypass {
+      left: 248px;
+      width: 62px;
+    }
+
+    .btn-measure {
+      left: 316px;
+      width: 66px;
+    }
+
+    /* Estados para Botones */
+    .btn-bypass.is-active {
+      background: linear-gradient(180deg, #e06a6a 0%, #9e3d3d 100%);
+      border-color: #e06a6a;
+      color: #ffffff;
+    }
+
+    .btn-measure.is-measured {
+      background: linear-gradient(180deg, #1d2129 0%, #12151a 100%);
+      border-color: rgba(207, 198, 242, 0.4);
+      color: #cfc6f2;
+    }
+
+    /* Indicador LED en Measure */
+    .btn-measure::before {
+      content: '';
+      display: inline-block;
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background-color: #5a626c;
+      margin-right: 5px;
+    }
+
+    .btn-measure.is-measured::before {
+      background-color: #cfc6f2;
+    }
+
+    /* ==========================================================================
+       3. METERS SECTION (Y: 72..108)
+       ========================================================================== */
+    .meters-panel {
+      position: absolute;
+      top: 72px;
+      left: 18px;
+      width: 364px;
+      height: 36px;
+      background-color: #0e1013;
+      border: 1px solid rgba(255, 255, 255, 0.055);
+      border-radius: 5px;
+    }
+
+    /* Meter Block IN */
+    .meter-group-in {
+      position: absolute;
+      top: 6px;
+      left: 10px;
+      width: 162px;
+      height: 24px;
+    }
+
+    /* Meter Block OUT */
+    .meter-group-out {
+      position: absolute;
+      top: 6px;
+      left: 192px;
+      width: 162px;
+      height: 24px;
+    }
+
+    .meter-label {
+      position: absolute;
+      top: 6px;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 700;
+      font-size: 11px;
+      letter-spacing: 1px;
+      color: #5a626c;
+    }
+    .meter-label-in { left: 0; }
+    .meter-label-out { left: 0; }
+
+    .meter-track-container {
+      position: absolute;
+      left: 26px;
+      width: 136px;
+    }
+
+    .meter-track-l { top: 3px; }
+    .meter-track-r { top: 11px; }
+
+    .meter-bg {
+      position: absolute;
+      left: 0;
+      width: 136px;
+      height: 4px;
+      background-color: #050607;
+      border-radius: 1px;
+      border: 1px solid rgba(255, 255, 255, 0.055);
+    }
+
+    .meter-fill {
+      position: absolute;
+      top: 1px;
+      left: 1px;
+      height: 2px;
+      border-radius: 1px;
+    }
+
+    /* Fills simular lectura audio */
+    .meter-fill-in-l { width: 92px; background: linear-gradient(90deg, #52c49a 0%, #52c49a 80%, #e0ad5a 100%); }
+    .meter-fill-in-r { width: 84px; background: linear-gradient(90deg, #52c49a 0%, #52c49a 80%, #e0ad5a 100%); }
+    .meter-fill-out-l { width: 108px; background: linear-gradient(90deg, #52c49a 0%, #e0ad5a 85%, #e06a6a 100%); }
+    .meter-fill-out-r { width: 102px; background: linear-gradient(90deg, #52c49a 0%, #e0ad5a 85%, #e06a6a 100%); }
+
+    /* Divider vertical entre IN y OUT */
+    .meters-divider {
+      position: absolute;
+      top: 6px;
+      left: 182px;
+      width: 1px;
+      height: 24px;
+      background-color: rgba(255, 255, 255, 0.055);
+    }
+
+    /* ==========================================================================
+       4. HERO CONTROL: SHINE KNOB (Y: 122..296)
+       ========================================================================== */
+    .hero-panel {
+      position: absolute;
+      top: 122px;
+      left: 18px;
+      width: 364px;
+      height: 174px;
+      background: linear-gradient(180deg, #12151a 0%, #0e1013 100%);
+      border: 1px solid rgba(255, 255, 255, 0.095);
+      border-radius: 8px;
+    }
+
+    /* Hero Title Label */
+    .hero-label {
+      position: absolute;
+      top: 12px;
+      width: 364px;
+      text-align: center;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 700;
+      font-size: 15px;
+      letter-spacing: 2.5px;
+      color: #9aa1ab;
+    }
+
+    /* Main Knob Outer Ring Assembly (Exact Center Alignment) */
+    .knob-hero-outer {
+      position: absolute;
+      top: 36px;
+      left: 132px; /* (364 - 100) / 2 = 132 */
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      background-color: #050607;
+      border: 1px solid rgba(255, 255, 255, 0.055);
+    }
+
+    /* Track Arc de fondo (Simulado con border conic/radial) */
+    .knob-hero-track {
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 92px;
+      height: 92px;
+      border-radius: 50%;
+      border: 2px solid rgba(255, 255, 255, 0.055);
+    }
+
+    /* Knob Body Metal (Acero pulido) */
+    .knob-hero-body {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      width: 82px;
+      height: 82px;
+      border-radius: 50%;
+      background: linear-gradient(145deg, #a9a9b3 0%, #75757f 45%, #484852 100%);
+      border: 1px solid rgba(255, 255, 255, 0.17);
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.5);
+    }
+
+    /* Capa Interior del Knob Hero */
+    .knob-hero-cap {
+      position: absolute;
+      top: 4px;
+      left: 4px;
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: linear-gradient(180deg, #181b21 0%, #0e1013 100%);
+      border: 1px solid rgba(255, 255, 255, 0.095);
+    }
+
+    /* Indicador del Knob Hero (Opaline Sheen Acento) */
+    .knob-hero-pointer {
+      position: absolute;
+      top: 6px;
+      left: 34px;
+      width: 4px;
+      height: 16px;
+      border-radius: 2px;
+      background: linear-gradient(180deg, #e8c8a8 0%, #cfc6f2 50%, #9fb8e8 100%);
+    }
+
+    /* Value Display */
+    .hero-value-container {
+      position: absolute;
+      top: 142px;
+      width: 364px;
+      text-align: center;
+    }
+
+    .hero-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 600;
+      font-size: 18px;
+      color: #eceef1;
+      letter-spacing: -0.5px;
+    }
+
+    .hero-unit {
+      font-family: 'Inter', sans-serif;
+      font-weight: 500;
+      font-size: 10px;
+      color: #5a626c;
+      margin-left: 2px;
+    }
+
+    /* ==========================================================================
+       5. SECONDARY KNOBS SECTION (Y: 308..416)
+       ========================================================================== */
+    .sec-panel {
+      position: absolute;
+      top: 308px;
+      width: 176px;
+      height: 108px;
+      background: linear-gradient(180deg, #12151a 0%, #0e1013 100%);
+      border: 1px solid rgba(255, 255, 255, 0.055);
+      border-radius: 5px;
+    }
+
+    .sec-panel-left { left: 18px; }
+    .sec-panel-right { left: 206px; }
+
+    .sec-label {
+      position: absolute;
+      top: 10px;
+      width: 174px;
+      text-align: center;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 700;
+      font-size: 12px;
+      letter-spacing: 1.5px;
+      color: #9aa1ab;
+    }
+
+    /* Secondary Knob Assembly (54x54) */
+    .knob-sec-outer {
+      position: absolute;
+      top: 28px;
+      left: 60px; /* (174 - 54) / 2 = 60 */
+      width: 54px;
+      height: 54px;
+      border-radius: 50%;
+      background-color: #050607;
+      border: 1px solid rgba(255, 255, 255, 0.055);
+    }
+
+    .knob-sec-body {
+      position: absolute;
+      top: 4px;
+      left: 4px;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: linear-gradient(145deg, #a9a9b3 0%, #75757f 50%, #484852 100%);
+      border: 1px solid rgba(255, 255, 255, 0.17);
+    }
+
+    .knob-sec-cap {
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: linear-gradient(180deg, #181b21 0%, #0e1013 100%);
+      border: 1px solid rgba(255, 255, 255, 0.095);
+    }
+
+    /* Pointer Secundario */
+    .knob-sec-pointer {
+      position: absolute;
+      top: 4px;
+      left: 17px;
+      width: 2px;
+      height: 10px;
+      border-radius: 1px;
+      background-color: #eceef1;
+    }
+
+    /* Centro Bipolar Marker para Body/Air */
+    .bipolar-center-dot {
+      position: absolute;
+      top: -3px;
+      left: 26px;
+      width: 2px;
+      height: 4px;
+      background-color: #5a626c;
+      border-radius: 1px;
+    }
+
+    /* Value Displays Secundarios */
+    .sec-value-container {
+      position: absolute;
+      top: 86px;
+      width: 174px;
+      text-align: center;
+    }
+
+    .sec-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 500;
+      font-size: 12px;
+      color: #eceef1;
+    }
+
+    /* ==========================================================================
+       6. FOOTER / STATUS BAR (Y: 428..460)
+       ========================================================================== */
+    .footer-panel {
+      position: absolute;
+      top: 428px;
+      left: 0;
+      width: 400px;
+      height: 32px;
+      background-color: #050607;
+      border-top: 1px solid rgba(255, 255, 255, 0.055);
+    }
+
+    .status-text {
+      position: absolute;
+      top: 10px;
+      left: 18px;
+      font-family: 'Inter', sans-serif;
+      font-weight: 400;
+      font-size: 9.5px;
+      letter-spacing: 0.3px;
+      color: #5a626c;
+    }
+
+    .status-badge {
+      position: absolute;
+      top: 9px;
+      right: 18px;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 500;
+      font-size: 8.5px;
+      letter-spacing: 0.5px;
+      color: #52c49a;
+      text-transform: uppercase;
+    }
+
+    .status-badge::before {
+      content: '';
+      display: inline-block;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background-color: #52c49a;
+      margin-right: 4px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- CONTENEDOR PRINCIPAL DEL PLUGIN (400x460) -->
+  <div id="opaline">
+    
+    <!-- Background Gradient -->
+    <div class="bg-gradient"></div>
+
+    <!-- ================= HEADER ================= -->
+    <div class="header-panel">
+      <div class="brand-title">Opaline</div>
+      <div class="brand-subtitle">Vocal Polish</div>
+
+      <button class="btn-header btn-bypass" type="button">Bypass</button>
+      <button class="btn-header btn-measure" type="button">Measure</button>
+    </div>
+
+    <!-- ================= METERS (IN / OUT) ================= -->
+    <div class="meters-panel">
+      <!-- Input Meter -->
+      <div class="meter-group-in">
+        <div class="meter-label meter-label-in">IN</div>
+        <div class="meter-track-container meter-track-l">
+          <div class="meter-bg"><div class="meter-fill meter-fill-in-l"></div></div>
+        </div>
+        <div class="meter-track-container meter-track-r">
+          <div class="meter-bg"><div class="meter-fill meter-fill-in-r"></div></div>
+        </div>
+      </div>
+
+      <div class="meters-divider"></div>
+
+      <!-- Output Meter -->
+      <div class="meter-group-out">
+        <div class="meter-label meter-label-out">OUT</div>
+        <div class="meter-track-container meter-track-l">
+          <div class="meter-bg"><div class="meter-fill meter-fill-out-l"></div></div>
+        </div>
+        <div class="meter-track-container meter-track-r">
+          <div class="meter-bg"><div class="meter-fill meter-fill-out-r"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= HERO CONTROL: SHINE ================= -->
+    <div class="hero-panel">
+      <div class="hero-label">SHINE</div>
+      
+      <div class="knob-hero-outer">
+        <div class="knob-hero-track"></div>
+        <div class="knob-hero-body">
+          <div class="knob-hero-cap">
+            <div class="knob-hero-pointer"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="hero-value-container">
+        <span class="hero-value">48.5</span><span class="hero-unit">%</span>
+      </div>
+    </div>
+
+    <!-- ================= SECONDARY CONTROLS ================= -->
+    <!-- Body / Air (Bipolar) -->
+    <div class="sec-panel sec-panel-left">
+      <div class="sec-label">BODY / AIR</div>
+      
+      <div class="knob-sec-outer">
+        <div class="bipolar-center-dot"></div>
+        <div class="knob-sec-body">
+          <div class="knob-sec-cap">
+            <div class="knob-sec-pointer" style="transform: rotate(25deg); transform-origin: 1px 15px;"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sec-value-container">
+        <span class="sec-value">+12</span>
+      </div>
+    </div>
+
+    <!-- Output (Unipolar) -->
+    <div class="sec-panel sec-panel-right">
+      <div class="sec-label">OUTPUT</div>
+
+      <div class="knob-sec-outer">
+        <div class="knob-sec-body">
+          <div class="knob-sec-cap">
+            <div class="knob-sec-pointer" style="transform: rotate(45deg); transform-origin: 1px 15px;"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sec-value-container">
+        <span class="sec-value">70.0</span>
+      </div>
+    </div>
+
+    <!-- ================= FOOTER / STATUS BAR ================= -->
+    <div class="footer-panel">
+      <div class="status-text">Engine Active • 48.0 kHz</div>
+      <div class="status-badge">Ready</div>
+    </div>
+
+  </div>
+
+</body>
+</html>
+
+<!--
+==============================================================================
+DESIGN TOKENS & JUCE PORT SPECIFICATIONS
+==============================================================================
+:root {
+  /* Dimensions */
+  --canvas-width: 400px;
+  --canvas-height: 460px;
+
+  /* Surfaces (Grafito) */
+  --color-bg: #060708;
+  --color-surface: #0e1013;
+  --color-panel: #12151a;
+  --color-panel-mid: #181b21;
+  --color-raised: #1d2129;
+  --color-inset: #050607;
+
+  /* Accent (Ópalo Iridiscente) */
+  --color-accent: #cfc6f2;
+  --color-opal-warm: #e8c8a8;
+  --color-opal-cold: #9fb8e8;
+
+  /* Hairlines & Borders */
+  --border-faint: rgba(255, 255, 255, 0.055);
+  --border-normal: rgba(255, 255, 255, 0.095);
+  --border-strong: rgba(255, 255, 255, 0.170);
+
+  /* Typography Colors */
+  --color-text-hi: #eceef1;
+  --color-text-mid: #9aa1ab;
+  --color-text-lo: #5a626c;
+
+  /* Semantics */
+  --color-safe: #52c49a;
+  --color-warn: #e0ad5a;
+  --color-danger: #e06a6a;
+
+  /* Metal Knob Colors (Acero) */
+  --color-metal-hi: #a9a9b3;
+  --color-metal-mid: #75757f;
+  --color-metal-lo: #484852;
+
+  /* Corner Radii */
+  --radius-s: 3px;
+  --radius-m: 5px;
+  --radius-l: 8px;
+  --radius-xl: 10px;
+
+  /* Fonts */
+  --font-ui: "Inter", sans-serif;
+  --font-display: "Barlow Condensed", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+}
+==============================================================================
+-->

@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+  @page {
+    size: 560px 670px;
+    margin: 0;
+  }
+
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    background-color: #0c0d12;
+    font-family: 'Inter', -apple-system, sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    padding: 0;
+    color: #9aa0b4;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Outer Chassis */
+  .plugin-chassis {
+    width: 530px;
+    height: 640px;
+    background: linear-gradient(180deg, #1b1e28 0%, #151720 100%);
+    border: 1px solid #2d3244;
+    border-radius: 8px;
+    padding: 20px 22px 14px 22px;
+    position: relative;
+    box-shadow: 0 40px 80px rgba(0,0,0,0.95), inset 0 1px 1px rgba(255,255,255,0.08);
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Header Section */
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+
+  .brand-title {
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: 4px;
+    color: #d8dde8;
+    line-height: 1;
+  }
+
+  .brand-subtitle {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: #5d6478;
+    margin-top: 5px;
+  }
+
+  .header-controls {
+    display: flex;
+    gap: 10px;
+  }
+
+  .btn-top {
+    background: linear-gradient(180deg, #323746 0%, #1f222c 100%);
+    border: 1px solid #3d4458;
+    border-radius: 4px;
+    color: #b0b7c8;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    padding: 8px 22px;
+    box-shadow: 0 3px 6px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.1);
+    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+  }
+
+  /* Preset Bar */
+  .preset-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+  }
+
+  .preset-dropdown {
+    width: 210px;
+    height: 24px;
+    background: #11131a;
+    border: 1px solid #262a38;
+    border-radius: 3px;
+    padding: 0 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    color: #8a92a6;
+  }
+
+  .preset-arrow {
+    width: 0;
+    height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid #636b82;
+  }
+
+  .ab-switch {
+    display: flex;
+    background: #11131a;
+    border: 1px solid #262a38;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .ab-btn {
+    padding: 3px 12px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #596075;
+  }
+  .ab-btn.active {
+    background: #252937;
+    color: #b0b7c8;
+  }
+
+  /* Meters Panel */
+  .meters-panel {
+    display: flex;
+    gap: 14px;
+    margin-bottom: 16px;
+  }
+
+  .meter-box {
+    flex: 1;
+    background: #0e1016;
+    border: 1px solid #202432;
+    border-radius: 4px;
+    padding: 8px 12px;
+  }
+
+  .meter-scale {
+    display: flex;
+    justify-content: flex-end;
+    gap: 16px;
+    font-size: 8px;
+    color: #4b5266;
+    font-family: monospace;
+    margin-bottom: 4px;
+  }
+
+  .meter-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+
+  .meter-label {
+    font-size: 9px;
+    font-weight: 700;
+    color: #636b80;
+    width: 30px;
+  }
+
+  .meter-infinity {
+    font-size: 8px;
+    color: #3f4556;
+    width: 14px;
+  }
+
+  .meter-bar-bg {
+    flex: 1;
+    height: 12px;
+    background: #12151d;
+    border: 1px solid #1a1e2a;
+    position: relative;
+    display: flex;
+    align-items: center;
+    padding: 0 2px;
+  }
+
+  .meter-ticks {
+    display: flex;
+    width: 100%;
+    gap: 1px;
+  }
+
+  .tick {
+    flex: 1;
+    height: 7px;
+    background: #1b1f2c;
+  }
+  .tick.on-dim { background: #2c3348; }
+  .tick.on-mid { background: #455073; }
+  .tick.on-bright { background: #6070a4; box-shadow: 0 0 3px #6070a4; }
+
+  .meter-target-line {
+    position: absolute;
+    right: 14px;
+    top: 0; bottom: 0;
+    width: 1px;
+    background: #414a68;
+  }
+
+  .meter-subtext {
+    text-align: center;
+    font-size: 7px;
+    letter-spacing: 1.5px;
+    color: #3b4152;
+    margin-top: 2px;
+  }
+
+  /* Real-Time Display & Center Spectrum Panel */
+  .display-container {
+    background: #0a0b0f;
+    border: 1px solid #1d212e;
+    border-radius: 6px;
+    height: 230px;
+    position: relative;
+    margin-bottom: 12px;
+    overflow: hidden;
+    box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+  }
+
+  /* Spectrum Bars Screen Background */
+  .spectrum-bg {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
+    padding: 20px;
+    opacity: 0.85;
+  }
+
+  .spec-column {
+    flex: 1;
+    background: linear-gradient(180deg, rgba(50,58,85,0.4) 0%, rgba(20,24,36,0.6) 100%);
+    border-radius: 1px;
+    position: relative;
+  }
+
+  .spec-column::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: #606d9c;
+    box-shadow: 0 0 6px #606d9c;
+  }
+
+  /* Giant Center Knob */
+  .center-knob-wrapper {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 180px;
+    height: 180px;
+    z-index: 10;
+  }
+
+  /* LED Ring Outer Circle */
+  .led-ring {
+    width: 180px;
+    height: 180px;
+    border-radius: 50%;
+    background: #11131b;
+    border: 2px solid #232736;
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.8);
+  }
+
+  /* Dashed LED indicator ring around knob */
+  .led-ticks-ring {
+    position: absolute;
+    width: 168px;
+    height: 168px;
+    border-radius: 50%;
+    border: 3px dashed #343a4e;
+    mask: radial-gradient(transparent 78px, black 80px);
+    -webkit-mask: radial-gradient(transparent 78px, black 80px);
+  }
+
+  .led-ticks-active {
+    position: absolute;
+    width: 168px;
+    height: 168px;
+    border-radius: 50%;
+    border: 3px dashed #8b99d0;
+    box-shadow: 0 0 8px #8b99d0;
+    clip-path: polygon(0 100%, 0 0, 80% 0, 50% 50%);
+  }
+
+  /* Metallic Knob Body */
+  .knob-body {
+    width: 138px;
+    height: 138px;
+    border-radius: 50%;
+    background: conic-gradient(
+      from 180deg,
+      #52596d 0deg,
+      #292d38 45deg,
+      #8a94ab 90deg,
+      #292d38 135deg,
+      #52596d 180deg,
+      #292d38 225deg,
+      #8a94ab 270deg,
+      #292d38 315deg,
+      #52596d 360deg
+    );
+    border: 1px solid #6b758e;
+    box-shadow: inset 0 2px 3px rgba(255,255,255,0.4), 0 12px 24px rgba(0,0,0,0.9);
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .knob-inner-ring {
+    width: 126px;
+    height: 126px;
+    border-radius: 50%;
+    border: 1px solid rgba(0,0,0,0.5);
+    background: radial-gradient(circle, rgba(255,255,255,0.05) 0%, transparent 70%);
+  }
+
+  .knob-notch {
+    position: absolute;
+    top: 10px;
+    width: 3px;
+    height: 14px;
+    background: #11131a;
+    border-radius: 2px;
+    box-shadow: 0 0 2px rgba(255,255,255,0.5);
+  }
+
+  /* Knob Readout Label */
+  .shine-readout {
+    text-align: center;
+    margin-bottom: 14px;
+  }
+
+  .shine-val {
+    font-size: 15px;
+    font-weight: 700;
+    color: #e2e7f2;
+    line-height: 1;
+  }
+
+  .shine-lbl {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 2.5px;
+    color: #6c748a;
+    margin-top: 3px;
+  }
+
+  /* Bottom Knobs Row */
+  .bottom-knobs-row {
+    display: flex;
+    justify-content: space-around;
+    align-items: flex-end;
+    margin-bottom: 12px;
+    padding: 0 20px;
+  }
+
+  .small-knob-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .small-knob-outer {
+    width: 100px;
+    height: 100px;
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+
+  /* Tick Mark Scale around Small Knobs */
+  .small-knob-ticks {
+    position: absolute;
+    width: 98px;
+    height: 98px;
+    border-radius: 50%;
+    border: 1px dashed #3a4156;
+  }
+
+  .small-knob-body {
+    width: 78px;
+    height: 78px;
+    border-radius: 50%;
+    background: conic-gradient(
+      from 180deg,
+      #484f63 0deg,
+      #222530 45deg,
+      #7a849b 90deg,
+      #222530 135deg,
+      #484f63 180deg,
+      #222530 225deg,
+      #7a849b 270deg,
+      #222530 315deg,
+      #484f63 360deg
+    );
+    border: 1px solid #5d667c;
+    box-shadow: inset 0 1px 2px rgba(255,255,255,0.3), 0 8px 16px rgba(0,0,0,0.8);
+    position: relative;
+    display: flex;
+    justify-content: center;
+  }
+
+  .small-knob-notch {
+    position: absolute;
+    top: 6px;
+    width: 2.5px;
+    height: 10px;
+    background: #11131a;
+    border-radius: 1px;
+  }
+
+  .sub-labels {
+    display: flex;
+    justify-content: space-between;
+    width: 110px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #5c647a;
+    margin-top: 2px;
+  }
+
+  .knob-readout-val {
+    font-size: 13px;
+    font-weight: 700;
+    color: #d0d6e5;
+    margin-top: 4px;
+    text-align: center;
+  }
+
+  .knob-readout-title {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    color: #5c647a;
+    margin-top: 2px;
+    text-align: center;
+  }
+
+  /* Dynamics Icon Graphic next to right knob */
+  .dynamics-icons {
+    display: flex;
+    justify-content: space-between;
+    width: 100px;
+    margin-top: 2px;
+    color: #4b5266;
+    font-size: 10px;
+  }
+
+  /* Bottom Measurement Footer Bar */
+  .footer-bar {
+    background: #090a0e;
+    border: 1px solid #1c202b;
+    border-radius: 3px;
+    padding: 7px 12px;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    color: #798299;
+    margin-top: auto;
+  }
+</style>
+</head>
+<body>
+
+<div class="plugin-chassis">
+  <!-- Header -->
+  <div class="header">
+    <div>
+      <div class="brand-title">OPALINE</div>
+      <div class="brand-subtitle">VOCAL POLISH</div>
+    </div>
+    <div class="header-controls">
+      <div class="btn-top">BYPASS</div>
+      <div class="btn-top">MEASURE</div>
+    </div>
+  </div>
+
+  <!-- Preset Bar -->
+  <div class="preset-bar">
+    <div class="preset-dropdown">
+      <span>Initial Patch</span>
+      <div class="preset-arrow"></div>
+    </div>
+    <div class="ab-switch">
+      <div class="ab-btn active">A</div>
+      <div class="ab-btn">B</div>
+    </div>
+  </div>
+
+  <!-- Meters Section -->
+  <div class="meters-panel">
+    <!-- IN METERS -->
+    <div class="meter-box">
+      <div class="meter-scale">
+        <span>-40</span><span>-24</span><span>-12</span><span>-6</span><span>+12dB</span>
+      </div>
+      <div class="meter-row">
+        <div class="meter-label">IN L</div>
+        <div class="meter-infinity">*∞</div>
+        <div class="meter-bar-bg">
+          <div class="meter-ticks">
+            <div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div>
+            <div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div>
+            <div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-mid"></div><div class="tick on-bright"></div>
+            <div class="tick"></div><div class="tick"></div><div class="tick"></div>
+          </div>
+          <div class="meter-target-line"></div>
+        </div>
+      </div>
+      <div class="meter-row">
+        <div class="meter-label">IN R</div>
+        <div class="meter-infinity">*∞</div>
+        <div class="meter-bar-bg">
+          <div class="meter-ticks">
+            <div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div>
+            <div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div>
+            <div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-mid"></div><div class="tick on-bright"></div>
+            <div class="tick"></div><div class="tick"></div><div class="tick"></div>
+          </div>
+          <div class="meter-target-line"></div>
+        </div>
+      </div>
+      <div class="meter-subtext">SIGNAL</div>
+    </div>
+
+    <!-- OUT METERS -->
+    <div class="meter-box">
+      <div class="meter-scale">
+        <span>-40</span><span>-24</span><span>-12</span><span>-6</span><span>+12dB</span>
+      </div>
+      <div class="meter-row">
+        <div class="meter-label">OUT L</div>
+        <div class="meter-infinity">*∞</div>
+        <div class="meter-bar-bg">
+          <div class="meter-ticks">
+            <div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div>
+            <div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div>
+            <div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-mid"></div><div class="tick on-bright"></div>
+            <div class="tick"></div><div class="tick"></div><div class="tick"></div>
+          </div>
+          <div class="meter-target-line"></div>
+        </div>
+      </div>
+      <div class="meter-row">
+        <div class="meter-label">OUT R</div>
+        <div class="meter-infinity">*∞</div>
+        <div class="meter-bar-bg">
+          <div class="meter-ticks">
+            <div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div>
+            <div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div>
+            <div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-dim"></div><div class="tick on-mid"></div><div class="tick on-bright"></div>
+            <div class="tick"></div><div class="tick"></div><div class="tick"></div>
+          </div>
+          <div class="meter-target-line"></div>
+        </div>
+      </div>
+      <div class="meter-subtext">SIGNAL</div>
+    </div>
+  </div>
+
+  <!-- Real-Time Spectrum Screen & Center Knob -->
+  <div class="display-container">
+    <div class="spectrum-bg">
+      <div class="spec-column" style="height: 40%;"></div>
+      <div class="spec-column" style="height: 55%;"></div>
+      <div class="spec-column" style="height: 48%;"></div>
+      <div class="spec-column" style="height: 35%;"></div>
+      <div class="spec-column" style="height: 62%;"></div>
+      <div class="spec-column" style="height: 50%;"></div>
+      <div class="spec-column" style="height: 42%;"></div>
+      <div class="spec-column" style="height: 58%;"></div>
+      <div class="spec-column" style="height: 65%;"></div>
+      <div class="spec-column" style="height: 45%;"></div>
+      <div class="spec-column" style="height: 52%;"></div>
+      <div class="spec-column" style="height: 38%;"></div>
+    </div>
+
+    <!-- Center Giant Metallic Knob -->
+    <div class="center-knob-wrapper">
+      <div class="led-ring">
+        <div class="led-ticks-ring"></div>
+        <div class="led-ticks-active"></div>
+        <div class="knob-body">
+          <div class="knob-inner-ring"></div>
+          <div class="knob-notch"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Knob Value -->
+  <div class="shine-readout">
+    <div class="shine-val">47%</div>
+    <div class="shine-lbl">SHINE</div>
+  </div>
+
+  <!-- Bottom Knobs Section -->
+  <div class="bottom-knobs-row">
+    <!-- BODY / AIR Knob -->
+    <div class="small-knob-container">
+      <div class="small-knob-outer">
+        <div class="small-knob-ticks"></div>
+        <div class="small-knob-body">
+          <div class="small-knob-notch"></div>
+        </div>
+      </div>
+      <div class="sub-labels">
+        <span>BODY</span>
+        <span>AIR</span>
+      </div>
+      <div class="knob-readout-val">0%</div>
+      <div class="knob-readout-title">BODY / AIR</div>
+    </div>
+
+    <!-- PUNCH & DYNAMICS / OUTPUT Knob -->
+    <div class="small-knob-container">
+      <div class="small-knob-outer">
+        <div class="small-knob-ticks"></div>
+        <div class="small-knob-body" style="transform: rotate(65deg);">
+          <div class="small-knob-notch"></div>
+        </div>
+      </div>
+      <div class="dynamics-icons">
+        <span>-||-</span>
+        <span>📊</span>
+      </div>
+      <div class="knob-readout-title" style="margin-top: 0; font-size: 9px;">PUNCH & DYNAMICS</div>
+      <div class="knob-readout-val">70%</div>
+      <div class="knob-readout-title">OUTPUT</div>
+    </div>
+  </div>
+
+  <!-- Bottom Measurement Data Bar -->
+  <div class="footer-bar">
+    MEASUREMENT DATA: -18 LUFS (i), +3.5dB Peak, DR8
+  </div>
+</div>
+
+</body>
+</html>

@@ -17,7 +17,12 @@ public:
     LedMeter();
 
     void setChannelLabels (const juce::String& ch0, const juce::String& ch1);
+    void setTitle (const juce::String& t) { title = t.toUpperCase(); repaint(); }
     void setLevelProvider (LevelProvider p);
+
+    /* Modo panel (Opaline): título + 2 filas etiqueta/barra + graticule +
+       readout de dB por canal. Geometría fija de 72×104. */
+    void setCompact (bool c) { compact = c; repaint(); }
 
     void paint (juce::Graphics&) override;
 
@@ -26,12 +31,14 @@ public:
 private:
     void timerCallback() override;
 
-    juce::String labels[2] { "CH L", "CH R" };
+    juce::String labels[2] { "L", "R" };
+    juce::String title { "IN" };
     LevelProvider provider;
 
     float smooth[2] { -60.0f, -60.0f };
     float peaks[2]  { -60.0f, -60.0f };
     int   peakTime[2] { 0, 0 };
+    bool  compact = false;
 };
 
 } // namespace floodo::brand

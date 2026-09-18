@@ -20,7 +20,19 @@ namespace floodo::brand
 class Knob : public juce::Component
 {
 public:
+    /* Acabado de la cara del dial:
+         Graphite  — grafito de la serie free
+         Metallic  — metal pulido con faceta maquinada (hero de la serie)
+         Precision — dial de instrumento (port 1:1 de opaline_design.html):
+                     pocillo + aro de acero fino (3px visible) + cara oscura +
+                     aguja blanca + punto central. La posición la lee la aguja;
+                     sin ticks, sin arco de valor, sin sello central.
+       La interacción es idéntica en los tres. */
+    enum class Finish { Graphite, Metallic, Precision };
+
     explicit Knob (float knobSize = 96.0f);
+
+    void setFinish (Finish f)                   { finish = f; repaint(); }
 
     void setValue (double v, bool notify = true);
     double getValue() const noexcept            { return value; }
@@ -33,10 +45,16 @@ public:
     void setReadoutReveal (bool reveal)         { readoutReveal = reveal; repaint(); }
 
     void setShowLabel (bool show)               { showLabel = show; resized(); }
+    void setShowReadout (bool show)             { showReadout = show; repaint(); }
     void setLabelText (const juce::String& t)   { labelText = t.toUpperCase(); resized(); }
     void setFormatValue (std::function<juce::String (double)> f) { formatValue = std::move(f); repaint(); }
 
     std::function<void (double)> onChange;
+
+    /* Se dispara cuando el valor cambia (venga del mouse/wheel/teclado o del
+       APVTS). Sirve para que el padre repinte texto que dibuja él mismo —
+       p.ej. el label/valor tipografiado del layout Precision. */
+    std::function<void()> onValueChanged;
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -55,7 +73,8 @@ public:
 
     /* Altura total (canvas + readout + label) para que el padre posicione */
     float totalHeight() const noexcept
-    { return knobDiameter() + rowGap + readoutH + (showLabel ? labelH : 0); }
+    { return knobDiameter() + rowGap
+             + (showReadout ? readoutH : 0) + (showLabel ? labelH : 0); }
 
     /* Diámetro del canvas completo (knob + pad), público para layout */
     float diameter() const noexcept { return knobDiameter(); }
@@ -70,7 +89,8 @@ private:
     int    steps = 0;
     bool   bipolar = false;
     bool   hovered = false, dragging = false;
-    bool   showLabel = false, readoutReveal = false;
+    bool   showLabel = false, readoutReveal = false, showReadout = true;
+    Finish finish = Finish::Graphite;
     juce::String labelText;
     juce::StringArray scaleLabels;
     std::function<juce::String (double)> formatValue;
@@ -82,6 +102,10 @@ private:
     double clampNorm (double n) const;
     double snapIfNeeded (double raw) const;
     juce::String displayText() const;
+
+    void paintBrandDial (juce::Graphics&, float cx, float cy, double valueAngle, double norm);
+    void paintPrecisionDial (juce::Graphics&, float cx, float cy, double valueAngle, double norm);
+    void paintText (juce::Graphics&, float cw, float ch);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Knob)
 };

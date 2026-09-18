@@ -39,14 +39,24 @@ inline constexpr uint32 panelMid    = 0xff181b21;
 inline constexpr uint32 raised      = 0xff1d2129;
 inline constexpr uint32 inset       = 0xff050607;
 
+/* Metal del hero-knob (acero gris medio, no cromo) */
+inline Colour metalHi()  { return Colour (0xffa9a9b3); }
+inline Colour metalMid() { return Colour (0xff75757f); }
+inline Colour metalLo()  { return Colour (0xff484852); }
+
 /* ── Hairlines (blanco al 5.5/9.5/17%) ── */
 inline Colour lineFaint()            { return juce::Colours::white.withAlpha(0.055f); }
 inline Colour line()                 { return juce::Colours::white.withAlpha(0.095f); }
 inline Colour lineStrong()           { return juce::Colours::white.withAlpha(0.17f); }
 
-/* ── Texto ── */
+/* ── Texto ──
+   textLo (#5a626c) da 3.0:1 sobre panel: NO alcanza WCAG AA para texto chico.
+   textDim (#7b838d) es el escalón para labels secundarios: 4.79:1 sobre panel,
+   4.95:1 sobre surface, 5.29:1 sobre inset. textLo queda sólo para texto
+   decorativo que no hay que leer. */
 inline constexpr uint32 textHi   = 0xffeceef1;
 inline constexpr uint32 textMid  = 0xff9aa1ab;
+inline constexpr uint32 textDim  = 0xff7b838d;
 inline constexpr uint32 textLo   = 0xff5a626c;
 
 /* ── Señales semánticas — SOLO meters/data-viz y acciones peligrosas ── */
@@ -84,6 +94,11 @@ struct Type
     float kerning = 0.0f;
     bool bold = false;
     bool uppercase = false;
+    /* 400/500/600/700 explícito. 0 = peso por defecto de la familia.
+       Sólo Barlow tiene pesos estáticos reales (500/600/700): Inter y Mono
+       son fuentes variables con default wght=400, así que ahí el peso no
+       cambia el render (ver BrandFonts.cpp). */
+    int weight = 0;
 };
 
 inline Type tDisplayXL()  { return { FontId::Barlow, 22.0f, 0.16f, true,  true  }; } /* hero-title   */
@@ -99,3 +114,4 @@ inline float textWidth (const juce::Font& f, const juce::String& s)
 { return juce::GlyphArrangement::getStringWidth (f, s); }
 
 } // namespace floodo::brand
+

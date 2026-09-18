@@ -18,3 +18,5 @@ opaline_preview.png
 # VS / IDE
 .vs/
 *.vcxproj.user
+tests/snapshots/current/
+tests/snapshots/diff/

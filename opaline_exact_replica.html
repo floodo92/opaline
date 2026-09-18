@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=Inter:wght@400;600;700;800&display=swap');
+
+  @page {
+    size: 440px 530px;
+    margin: 0;
+  }
+
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    background-color: #0d0f14;
+    font-family: 'Chakra Petch', 'Inter', -apple-system, sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    padding: 0;
+    color: #8c92a4;
+    user-select: none;
+  }
+
+  /* Plugin Container 1:1 Aspect & Layout */
+  .plugin-frame {
+    width: 420px;
+    height: 505px;
+    background: #12141c;
+    border: 1px solid #1c202b;
+    border-radius: 4px;
+    padding: 16px;
+    position: relative;
+    box-shadow: 0 30px 60px rgba(0,0,0,0.9);
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Bottom Right Grip Markings */
+  .grip-lines {
+    position: absolute;
+    bottom: 4px;
+    right: 4px;
+    width: 14px;
+    height: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    justify-content: flex-end;
+    align-items: flex-end;
+  }
+  .grip-line {
+    background: #2a2e3d;
+    height: 1px;
+  }
+
+  /* Header Section */
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 8px;
+  }
+
+  .title-group {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .brand-title {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: 5px;
+    color: #e5e9f0;
+    line-height: 1;
+    font-family: 'Chakra Petch', sans-serif;
+  }
+
+  .brand-subtitle {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: #555c70;
+    margin-top: 6px;
+  }
+
+  .header-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .btn-hdr {
+    background: #191c26;
+    border: 1px solid #282d3c;
+    border-radius: 5px;
+    color: #7d8498;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    padding: 7px 18px;
+    font-family: 'Chakra Petch', sans-serif;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  }
+
+  /* Top Border Line under Header */
+  .header-divider {
+    height: 1px;
+    background: #1c202d;
+    margin-bottom: 12px;
+  }
+
+  /* Meters Row */
+  .meters-container {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .meter-card {
+    flex: 1;
+    background: #090a0f;
+    border: 1px solid #161923;
+    border-radius: 2px;
+    padding: 8px 10px;
+    height: 52px;
+  }
+
+  .meter-scale-numbers {
+    display: flex;
+    justify-content: flex-end;
+    gap: 14px;
+    font-size: 8px;
+    color: #505668;
+    font-family: monospace;
+    margin-bottom: 4px;
+  }
+
+  .meter-scale-numbers span.blue {
+    color: #4a5482;
+  }
+
+  .meter-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 3px;
+  }
+
+  .meter-lbl {
+    font-size: 8px;
+    font-weight: 700;
+    color: #4d5364;
+    width: 26px;
+  }
+
+  .meter-inf {
+    font-size: 7px;
+    color: #3b4050;
+    width: 12px;
+    font-family: monospace;
+  }
+
+  .meter-track {
+    flex: 1;
+    height: 10px;
+    background: #0d0f15;
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+
+  /* LED Segment Grid */
+  .led-segments {
+    width: 100%;
+    height: 6px;
+    display: flex;
+    gap: 1px;
+  }
+
+  .led {
+    flex: 1;
+    height: 100%;
+    background: #161922;
+  }
+  .led.active-dim { background: #222736; }
+  .led.active-blue { background: #3b4369; }
+  .led.active-bright { background: #5c68a3; box-shadow: 0 0 4px #5c68a3; }
+
+  /* Target Line Marker */
+  .target-marker {
+    position: absolute;
+    right: 12px;
+    top: -2px;
+    bottom: -2px;
+    width: 2px;
+    background: #3b446a;
+  }
+
+  /* Knob Graphic Component */
+  .knob-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* Large Center Knob */
+  .main-knob-wrapper {
+    position: relative;
+    width: 154px;
+    height: 154px;
+    margin-bottom: 12px;
+  }
+
+  .knob-outer-track {
+    width: 154px;
+    height: 154px;
+    border-radius: 50%;
+    background: #11131b;
+    border: 1px solid #1a1e2b;
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  /* Outer Arc LED Arc */
+  .arc-ring {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    border-radius: 50%;
+    background: conic-gradient(from 220deg, #6c79b8 0deg, #6c79b8 130deg, transparent 130deg);
+    mask: radial-gradient(transparent 72px, black 73px);
+    -webkit-mask: radial-gradient(transparent 72px, black 73px);
+  }
+
+  .knob-dial {
+    width: 136px;
+    height: 136px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 40% 30%, #2a2e3d 0%, #151721 70%, #0d0f16 100%);
+    box-shadow: inset 0 1px 1px rgba(255,255,255,0.1), 0 8px 16px rgba(0,0,0,0.6);
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  /* Two Diagonal Crosshair Lines in Dial background */
+  .knob-crosshair-1 {
+    position: absolute;
+    width: 110px;
+    height: 1px;
+    background: rgba(255,255,255,0.04);
+    transform: rotate(15deg);
+  }
+  .knob-crosshair-2 {
+    position: absolute;
+    width: 110px;
+    height: 1px;
+    background: rgba(255,255,255,0.04);
+    transform: rotate(-75deg);
+  }
+
+  /* Pointer Triangle & Center Dot */
+  .pointer-arrow {
+    position: absolute;
+    top: 12px;
+    width: 0;
+    height: 0;
+    border-left: 9px solid transparent;
+    border-right: 9px solid transparent;
+    border-bottom: 44px solid #e2e8f0;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+    transform-origin: center 56px;
+    transform: rotate(5deg);
+  }
+
+  .center-cap {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #151721;
+    border: 2px solid #555d78;
+    box-shadow: 0 0 6px rgba(0,0,0,0.8);
+    position: relative;
+    z-index: 5;
+  }
+  .center-cap-inner {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #808ba8;
+    position: absolute;
+    top: 5px; left: 5px;
+  }
+
+  /* Readouts */
+  .value-display {
+    font-size: 13px;
+    font-weight: 700;
+    color: #d1d5db;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+  }
+
+  .label-display {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 2.5px;
+    color: #4a5165;
+    text-transform: uppercase;
+  }
+
+  /* Bottom Controls Row */
+  .bottom-row {
+    display: flex;
+    justify-content: space-around;
+    margin-top: 18px;
+  }
+
+  .small-knob-unit {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .small-knob-wrapper {
+    position: relative;
+    width: 104px;
+    height: 104px;
+    margin-bottom: 12px;
+  }
+
+  .small-knob-dial {
+    width: 90px;
+    height: 90px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 40% 30%, #292d3c 0%, #151721 70%, #0d0f16 100%);
+    box-shadow: inset 0 1px 1px rgba(255,255,255,0.1), 0 6px 12px rgba(0,0,0,0.6);
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 7px;
+  }
+
+  .small-pointer-arrow {
+    position: absolute;
+    top: 8px;
+    width: 0;
+    height: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-bottom: 30px solid #e2e8f0;
+    transform-origin: center 37px;
+  }
+
+  .small-center-cap {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #151721;
+    border: 1.5px solid #555d78;
+    position: relative;
+    z-index: 5;
+  }
+
+  /* Bottom Bar Status */
+  .footer-status {
+    position: absolute;
+    bottom: 8px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 10px;
+    color: #717788;
+    letter-spacing: 1px;
+    font-family: monospace;
+  }
+</style>
+</head>
+<body>
+
+<div class="plugin-frame">
+  <!-- Grip detail bottom right -->
+  <div class="grip-lines">
+    <div class="grip-line" style="width: 14px;"></div>
+    <div class="grip-line" style="width: 10px;"></div>
+    <div class="grip-line" style="width: 6px;"></div>
+  </div>
+
+  <!-- Header -->
+  <div class="header">
+    <div class="title-group">
+      <div class="brand-title">OPALINE</div>
+      <div class="brand-subtitle">VOCAL POLISH</div>
+    </div>
+    <div class="header-actions">
+      <div class="btn-hdr">BYPASS</div>
+      <div class="btn-hdr">MEASURE</div>
+    </div>
+  </div>
+
+  <div class="header-divider"></div>
+
+  <!-- Input / Output Level Meters -->
+  <div class="meters-container">
+    <!-- IN METER -->
+    <div class="meter-card">
+      <div class="meter-scale-numbers">
+        <span>-40</span><span>-24</span><span>-12</span><span>-6</span><span class="blue">0 3</span>
+      </div>
+      <div class="meter-row">
+        <div class="meter-lbl">IN L</div>
+        <div class="meter-inf">*∞</div>
+        <div class="meter-track">
+          <div class="led-segments">
+            <!-- 30 led segments -->
+            <div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div>
+            <div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div>
+            <div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div>
+            <div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div>
+            <div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-bright"></div><div class="led active-blue"></div>
+            <div class="led"></div><div class="led"></div><div class="led"></div>
+          </div>
+          <div class="target-marker"></div>
+        </div>
+      </div>
+      <div class="meter-row">
+        <div class="meter-lbl">IN R</div>
+        <div class="meter-inf">*∞</div>
+        <div class="meter-track">
+          <div class="led-segments">
+            <div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div>
+            <div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div>
+            <div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div>
+            <div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div>
+            <div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-bright"></div><div class="led active-blue"></div>
+            <div class="led"></div><div class="led"></div><div class="led"></div>
+          </div>
+          <div class="target-marker"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- OUT METER -->
+    <div class="meter-card">
+      <div class="meter-scale-numbers">
+        <span>-40</span><span>-24</span><span>-12</span><span>-6</span><span class="blue">0 3</span>
+      </div>
+      <div class="meter-row">
+        <div class="meter-lbl">OUT L</div>
+        <div class="meter-inf">*∞</div>
+        <div class="meter-track">
+          <div class="led-segments">
+            <div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div>
+            <div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div>
+            <div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div>
+            <div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div>
+            <div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-bright"></div><div class="led active-blue"></div>
+            <div class="led"></div><div class="led"></div><div class="led"></div>
+          </div>
+          <div class="target-marker"></div>
+        </div>
+      </div>
+      <div class="meter-row">
+        <div class="meter-lbl">OUT R</div>
+        <div class="meter-inf">*∞</div>
+        <div class="meter-track">
+          <div class="led-segments">
+            <div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div>
+            <div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div>
+            <div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div>
+            <div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div>
+            <div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-dim"></div><div class="led active-bright"></div><div class="led active-blue"></div>
+            <div class="led"></div><div class="led"></div><div class="led"></div>
+          </div>
+          <div class="target-marker"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Central Control -->
+  <div class="knob-section">
+    <div class="main-knob-wrapper">
+      <div class="knob-outer-track">
+        <div class="arc-ring"></div>
+        <div class="knob-dial">
+          <div class="knob-crosshair-1"></div>
+          <div class="knob-crosshair-2"></div>
+          <div class="pointer-arrow" style="transform: rotate(5deg);"></div>
+          <div class="center-cap">
+            <div class="center-cap-inner"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="value-display">47%</div>
+    <div class="label-display">SHINE</div>
+  </div>
+
+  <!-- Bottom Control Row -->
+  <div class="bottom-row">
+    <!-- Body / Air Knob -->
+    <div class="small-knob-unit">
+      <div class="small-knob-wrapper">
+        <div class="knob-outer-track" style="width: 104px; height: 104px;">
+          <div class="arc-ring" style="mask: radial-gradient(transparent 47px, black 48px); -webkit-mask: radial-gradient(transparent 47px, black 48px); background: conic-gradient(from 220deg, #6c79b8 0deg, #6c79b8 10deg, transparent 10deg);"></div>
+          <div class="small-knob-dial">
+            <div class="knob-crosshair-1" style="width: 70px;"></div>
+            <div class="knob-crosshair-2" style="width: 70px;"></div>
+            <div class="small-pointer-arrow" style="transform: rotate(0deg);"></div>
+            <div class="small-center-cap"></div>
+          </div>
+        </div>
+      </div>
+      <div class="value-display">0%</div>
+      <div class="label-display">BODY / AIR</div>
+    </div>
+
+    <!-- Output Knob -->
+    <div class="small-knob-unit">
+      <div class="small-knob-wrapper">
+        <div class="knob-outer-track" style="width: 104px; height: 104px;">
+          <div class="arc-ring" style="mask: radial-gradient(transparent 47px, black 48px); -webkit-mask: radial-gradient(transparent 47px, black 48px); background: conic-gradient(from 220deg, #6c79b8 0deg, #6c79b8 190deg, transparent 190deg);"></div>
+          <div class="small-knob-dial">
+            <div class="knob-crosshair-1" style="width: 70px;"></div>
+            <div class="knob-crosshair-2" style="width: 70px;"></div>
+            <div class="small-pointer-arrow" style="transform: rotate(65deg);"></div>
+            <div class="small-center-cap"></div>
+          </div>
+        </div>
+      </div>
+      <div class="value-display">70%</div>
+      <div class="label-display">OUTPUT</div>
+    </div>
+  </div>
+
+  <!-- Footer text -->
+  <div class="footer-status">not measured</div>
+</div>
+
+</body>
+</html>

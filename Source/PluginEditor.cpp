@@ -3,8 +3,6 @@
 
 using namespace floodo::brand;
 
-static constexpr int HEADER_H = 44;
-
 /*============================================================================*/
 
 OpalineAudioProcessorEditor::Frame::Frame (OpalineAudioProcessorEditor& owner)
@@ -12,41 +10,47 @@ OpalineAudioProcessorEditor::Frame::Frame (OpalineAudioProcessorEditor& owner)
 {
     setOpaque (false);
 
-    /* SHINE — el único control que manda. 0..100. */
-    addAndMakeVisible (shineKnob);
-    shineKnob.setLabelText ("Shine");
-    shineKnob.setShowLabel (true);
-    shineKnob.setRange (0.0, 100.0);
-    shineKnob.setDefaultValue (0.0);
-    shineKnob.setFormatValue ([] (double v) { return juce::String ((int) v) + "%"; });
+    /* Los tres knobs comparten el dial Precision. El readout y el label los
+       dibuja el Frame (label ARRIBA del valor + tipografías del diseño), así
+       que el Knob va sin texto propio y avisa por onValueChanged para que el
+       Frame repinte. */
+    auto setupKnob = [this] (Knob& k, double lo, double hi, double def)
+    {
+        addAndMakeVisible (k);
+        k.setFinish (Knob::Finish::Precision);
+        k.setShowLabel (false);
+        k.setShowReadout (false);
+        k.setRange (lo, hi);
+        k.setDefaultValue (def);
+        k.onValueChanged = [this] { repaint(); };
+    };
+
+    /* SHINE — el control que manda. 0..100. */
+    setupKnob (shineKnob, 0.0, 100.0, 0.0);
     shineAtt = std::make_unique<KnobAttachment> (ed.proc.apvts, "shine", shineKnob);
 
-    /* BODY / AIR — bipolar centro 0. */
-    addAndMakeVisible (bodyAirKnob);
-    bodyAirKnob.setLabelText ("Body / Air");
-    bodyAirKnob.setShowLabel (true);
-    bodyAirKnob.setRange (-100.0, 100.0);
-    bodyAirKnob.setDefaultValue (0.0);
+    /* BODY / AIR — bipolar centro 0 (la marca de cero importa). */
+    setupKnob (bodyAirKnob, -100.0, 100.0, 0.0);
     bodyAirKnob.setBipolar (true);
     bodyAirAtt = std::make_unique<KnobAttachment> (ed.proc.apvts, "bodyair", bodyAirKnob);
 
     /* OUTPUT */
-    addAndMakeVisible (outputKnob);
-    outputKnob.setLabelText ("Output");
-    outputKnob.setShowLabel (true);
-    outputKnob.setRange (0.0, 100.0);
-    outputKnob.setDefaultValue (70.0);
+    setupKnob (outputKnob, 0.0, 100.0, 70.0);
     outputAtt = std::make_unique<KnobAttachment> (ed.proc.apvts, "output", outputKnob);
 
     /* Meters */
-    inMeter.setChannelLabels ("IN L", "IN R");
+    inMeter.setCompact (true);
+    outMeter.setCompact (true);
+    inMeter.setTitle ("IN");
+    outMeter.setTitle ("OUT");
+    inMeter.setChannelLabels ("L", "R");
+    outMeter.setChannelLabels ("L", "R");
     inMeter.setLevelProvider ([this] { return ed.proc.getInLevels(); });
-    outMeter.setChannelLabels ("OUT L", "OUT R");
     outMeter.setLevelProvider ([this] { return ed.proc.getOutLevels(); });
     addAndMakeVisible (inMeter);
     addAndMakeVisible (outMeter);
 
-    /* Measure (pill con look de marca) */
+    /* Measure */
     addAndMakeVisible (measureBtn);
     measureBtn.setComponentID ("measure");
     measureBtn.setLookAndFeel (laf.get());
@@ -54,7 +58,7 @@ OpalineAudioProcessorEditor::Frame::Frame (OpalineAudioProcessorEditor& owner)
     measureBtn.setClickingTogglesState (true);
     measureBtn.onClick = [this] { ed.measurePressed(); };
 
-    /* Bypass (toggle pill, verde cuando activo) */
+    /* Bypass */
     addAndMakeVisible (bypassBtn);
     bypassBtn.setComponentID ("bypass");
     bypassBtn.setLookAndFeel (laf.get());
@@ -63,78 +67,142 @@ OpalineAudioProcessorEditor::Frame::Frame (OpalineAudioProcessorEditor& owner)
     bypassAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>
         (ed.proc.apvts, "bypass", bypassBtn);
 
+    /* Footer izquierda: dato real de sesión (lo llena el editor) */
     addAndMakeVisible (measureStatus);
-    measureStatus.setJustificationType (juce::Justification::centred);
-    measureStatus.setText ("not measured", juce::dontSendNotification);
+    measureStatus.setInterceptsMouseClicks (false, false);
+    measureStatus.setJustificationType (juce::Justification::centredLeft);
+    measureStatus.setFont (font ({ FontId::Inter, 9.0f, 0.06f, false, true, 400 }));
+    measureStatus.setColour (juce::Label::textColourId, Colour (textDim));
 }
 
 /*============================================================================*/
 
 void OpalineAudioProcessorEditor::Frame::paint (juce::Graphics& g)
 {
-    const auto b = getLocalBounds().toFloat();
-
-    /* .plugin-frame: panel + borde hairline-strong + radius lg */
-    g.setColour (Colour (panel));
-    g.fillRoundedRectangle (b, rLg);
-    g.setColour (lineStrong());
-    g.drawRoundedRectangle (b.reduced (0.5f), rLg, 1.0f);
-
-    /* Header hairline */
+    /* ── Header ──
+       Superficie un escalón por encima del canvas: #060708 < #0e1013 < #12151a.
+       Antes el header sólo se separaba por un hairline y se leía como parte
+       del fondo. */
+    g.setColour (Colour (surface));
+    g.fillRect (0.0f, 0.0f, (float) canvasW, 52.0f);
     g.setColour (line());
-    g.fillRect (0, HEADER_H - 1, getWidth(), 1);
+    g.fillRect (0.0f, 51.0f, (float) canvasW, 1.0f);
 
-    /* Header content (coords de diseño 400×460, ya escaladas por el transform) */
-    const auto hb = getLocalBounds().withHeight (HEADER_H).reduced (24, 0);
-    g.setFont (font (tDisplaySM()));
-    g.setColour (accentAlpha (0.75f));
-    g.drawText ("VOCAL POLISH", hb, juce::Justification::bottomLeft, false);
+    /* ── Panel principal ── */
+    const juce::Rectangle<float> panelBox (8.0f, 52.0f, 384.0f, 400.0f);
+    g.setColour (Colour (panel));
+    g.fillRoundedRectangle (panelBox, rLg);
 
-    g.setFont (font ({ FontId::Barlow, 22.0f, 0.16f, true, true }));
+    /* ── Marca ── */
+    g.setFont (font ({ FontId::Barlow, 18.0f, 0.14f, false, true, 600 }));
     g.setColour (Colour (textHi));
-    g.drawText ("OPALINE", hb, juce::Justification::topLeft, false);
+    g.drawText ("OPALINE", 14, 9, 140, 18, juce::Justification::centredLeft, false);
+
+    g.setFont (font ({ FontId::Inter, 9.0f, 0.18f, false, true, 400 }));
+    g.setColour (Colour (textDim));
+    g.drawText ("VOCAL POLISH", 14, 30, 140, 10, juce::Justification::centredLeft, false);
+
+    /* ── Footer (dentro del panel, recortado a sus esquinas) ── */
+    {
+        juce::Graphics::ScopedSaveState ss (g);
+        juce::Path clip;
+        clip.addRoundedRectangle (panelBox, rLg);
+        g.reduceClipRegion (clip, {});
+
+        const float fy = panelBox.getBottom() - 29.0f;   /* 423 */
+        g.setColour (Colour (inset));
+        g.fillRect (panelBox.getX(), fy, panelBox.getWidth(), 28.0f);
+        g.setColour (line());
+        g.fillRect (panelBox.getX(), fy, panelBox.getWidth(), 1.0f);
+
+        /* Derecha: dot de estado + estado real del MEASURE */
+        g.setFont (font ({ FontId::Inter, 8.0f, 0.08f, false, true, 500 }));
+        const float rx = panelBox.getRight() - 14.0f;    /* 378 */
+        const float tw = juce::jmax (1.0f, textWidth (g.getCurrentFont(), statusRight));
+        const float tx = rx - tw;
+
+        g.setColour (statusColour);
+        g.fillEllipse (tx - 10.0f, fy + 12.0f, 4.0f, 4.0f);
+        g.setColour (Colour (textDim));
+        g.drawText (statusRight, (int) tx, (int) fy + 10, (int) tw, 10,
+                    juce::Justification::centredLeft, false);
+    }
+
+    /* Borde del panel AL FINAL: el fill del footer, al llegar hasta el borde
+       inferior, tapaba el hairline si éste se dibujaba antes. */
+    g.setColour (lineFaint());
+    g.drawRoundedRectangle (panelBox.reduced (0.5f), rLg, 1.0f);
+
+    /* ── Texto de los knobs — label ARRIBA, valor debajo ── */
+    const float heroX = 122.0f, heroW = 156.0f;
+    const float bodyX = 76.0f,  outX = 252.0f, smallW = 72.0f;
+
+    /* SHINE */
+    g.setFont (font ({ FontId::Barlow, 13.0f, 0.16f, false, true, 600 }));
+    g.setColour (Colour (textHi));
+    g.drawText ("SHINE", (int) heroX, 236, (int) heroW, 13,
+                juce::Justification::centred, false);
+
+    g.setFont (font ({ FontId::Mono, 22.0f, -0.02f, false, false, 500 }));
+    g.setColour (Colour (textHi));
+    g.drawText (juce::String ((int) std::round (shineKnob.getValue())),
+                (int) heroX, 252, (int) heroW, 22,
+                juce::Justification::centred, false);
+
+    g.setFont (font ({ FontId::Mono, 11.0f, 0.0f, false, false, 400 }));
+    g.setColour (Colour (textMid));
+    g.drawText ("%", (int) heroX, 276, (int) heroW, 11,
+                juce::Justification::centred, false);
+
+    /* BODY / AIR — bipolar, con signo */
+    const int baVal = (int) std::round (bodyAirKnob.getValue());
+    g.setFont (font ({ FontId::Barlow, 10.0f, 0.12f, false, true, 500 }));
+    g.setColour (Colour (textMid));
+    g.drawText ("BODY / AIR", (int) bodyX, 378, (int) smallW, 10,
+                juce::Justification::centred, false);
+
+    g.setFont (font ({ FontId::Mono, 13.0f, 0.0f, false, false, 400 }));
+    g.setColour (Colour (textHi));
+    g.drawText ((baVal > 0 ? juce::String ("+") : juce::String()) + juce::String (baVal),
+                (int) bodyX, 390, (int) smallW, 13,
+                juce::Justification::centred, false);
+
+    /* OUTPUT */
+    g.setFont (font ({ FontId::Barlow, 10.0f, 0.12f, false, true, 500 }));
+    g.setColour (Colour (textMid));
+    g.drawText ("OUTPUT", (int) outX, 378, (int) smallW, 10,
+                juce::Justification::centred, false);
+
+    g.setFont (font ({ FontId::Mono, 13.0f, 0.0f, false, false, 400 }));
+    g.setColour (Colour (textHi));
+    g.drawText (juce::String ((int) std::round (outputKnob.getValue())),
+                (int) outX, 390, (int) smallW, 13,
+                juce::Justification::centred, false);
 }
 
 void OpalineAudioProcessorEditor::Frame::resized()
 {
-    const int W = getWidth();
-    const int H = getHeight();
-    const int bodyY = HEADER_H;
+    /* Meters: panel(16,24) y panel(296,24) → canvas (24,76) y (304,76).
+       El componente mide exactamente 72x104: el LedMeter posiciona su
+       contenido en coordenadas locales fijas. */
+    inMeter.setBounds  (24, 76, 72, 104);
+    outMeter.setBounds (304, 76, 72, 104);
 
-    /* ── header pills (derecha) ── */
-    const int pillH = 26;
-    const int mW = 92, bW = 84;
-    const int pillY = (HEADER_H - pillH) / 2 - 3;
-    measureBtn.setBounds (W - 24 - mW, pillY, mW, pillH);
-    bypassBtn.setBounds (W - 24 - mW - 8 - bW, pillY, bW, pillH);
+    /* Hero: canvas 156 (= size 140 + pad 8*2) en (122,74).
+       El bounds llega hasta la línea de unidad (y287) para que arrastrar
+       sobre el texto también mueva el knob. */
+    shineKnob.setBounds (122, 74, 156, 216);
 
-    /* ── Meters: IN | OUT lado a lado ── */
-    const int mY = bodyY + 8;
-    const int mH = 52;
-    const int rowW = W - 24 * 2;
-    const int gap = 12;
-    const int mMeterW = (rowW - gap) / 2;
-    inMeter.setBounds (24, mY, mMeterW, mH);
-    outMeter.setBounds (24 + mMeterW + gap, mY, mMeterW, mH);
+    /* Chicos: canvas 72 en (76,300) y (252,300) */
+    bodyAirKnob.setBounds (76, 300, 72, 104);
+    outputKnob.setBounds  (252, 300, 72, 104);
 
-    /* ── Hero: SHINE (el "one knob") ── */
-    const float shineD = shineKnob.diameter();
-    const int heroY = mY + mH + 8;
-    shineKnob.setBounds ((int) ((W - shineD) / 2.0f), heroY,
-                         (int) shineD, (int) shineKnob.totalHeight());
+    /* Header: ambos botones cierran exactos contra el borde del panel (x392) */
+    bypassBtn.setBounds  (262, 12, 62, 28);
+    measureBtn.setBounds (330, 12, 62, 28);
 
-    /* ── Knobs secundarios: Body/Air + Output ── */
-    const float kD = bodyAirKnob.diameter();
-    const int kY = heroY + (int) shineKnob.totalHeight() + 8;
-    const float totW = kD + 16.0f + outputKnob.diameter();
-    const int kX = (int) ((W - totW) / 2.0f);
-    bodyAirKnob.setBounds (kX, kY, (int) kD, (int) bodyAirKnob.totalHeight());
-    outputKnob.setBounds (kX + (int) (kD + 16.0f), kY,
-                          (int) outputKnob.diameter(), (int) outputKnob.totalHeight());
-
-    /* ── Status ── */
-    measureStatus.setBounds (0, kY + (int) bodyAirKnob.totalHeight() + 6,
-                             W, 16);
+    /* Footer izquierda: dato de sesión */
+    measureStatus.setBounds (22, 433, 300, 10);
 }
 
 /*============================================================================*/
@@ -151,6 +219,10 @@ OpalineAudioProcessorEditor::OpalineAudioProcessorEditor (OpalineAudioProcessor&
 
     setSize (canvasW, canvasH);
     startTimerHz (15);
+
+    /* El footer muestra datos reales desde el primer frame, sin esperar al
+       primer tick del timer (importante también para el snapshot headless). */
+    updateFooter();
 }
 
 OpalineAudioProcessorEditor::~OpalineAudioProcessorEditor() = default;
@@ -163,54 +235,84 @@ void OpalineAudioProcessorEditor::timerCallback()
     {
         // El Learn terminó solo (capturó su objetivo): apaga el botón. El hilo
         // de audio aún debe confirmar el perfil en el siguiente bloque; se da
-        // un margen de ~0,7 s para no pintar "not measured" por race.
+        // un margen de ~0,7 s para no pintar "READY" por race.
         measuring = false;
-        frame.measureBtn.setButtonText ("MEASURE");
         frame.measureBtn.setToggleState (false, juce::dontSendNotification);
         debounceTicks = 10;
     }
 
-    if (measuringNow)
+    if (! measuringNow)
     {
-        frame.measureStatus.setText ("listening… " + juce::String ((int) (proc.getMeasureProgress() * 100.0f)) + "%",
-                                     juce::dontSendNotification);
-    }
-    else if (debounceTicks > 0)
-    {
-        // Espera a que el hilo de audio confirme (finish → hasMeasuredFlag).
-        if (--debounceTicks == 0 || proc.hasMeasured())
+        if (debounceTicks > 0)
         {
-            debounceTicks = 0;
-            updateMeasureStatus();
-            pendingPosition = true;
+            // Espera a que el hilo de audio confirme (finish → hasMeasuredFlag).
+            if (--debounceTicks == 0 || proc.hasMeasured())
+            {
+                debounceTicks = 0;
+                pendingPosition = true;
+            }
+        }
+        else if (pendingPosition)
+        {
+            positionShineForProfile();
+            pendingPosition = false;
         }
     }
-    else if (pendingPosition)
-    {
-        positionShineForProfile();
-        pendingPosition = false;
-    }
+
+    updateFooter();
 }
 
-void OpalineAudioProcessorEditor::updateMeasureStatus()
+/* Footer: izquierda = dato real de la sesión de audio; derecha = estado real
+   del MEASURE (dot + palabra). Nada inventado: el mock pedía "IN / OUT LINKED",
+   que no existe como concepto en el plugin. */
+void OpalineAudioProcessorEditor::updateFooter()
 {
-    if (proc.hasMeasured())
+    const double sr = proc.getSampleRate();
+    const juce::String rate = sr > 0.0 ? juce::String (sr / 1000.0, 1) + " kHz"
+                                       : juce::String ("--");
+
+    const int nch = juce::jmax (proc.getTotalNumInputChannels(),
+                                proc.getTotalNumOutputChannels());
+    const juce::String chans = nch <= 1 ? juce::String ("MONO")
+                             : nch == 2 ? juce::String ("STEREO")
+                                        : juce::String (nch) + " CH";
+
+    const juce::String left = rate + " "
+        + juce::String::charToString ((juce::juce_wchar) 0x00B7) + " " + chans;
+
+    if (frame.measureStatus.getText() != left)
+        frame.measureStatus.setText (left, juce::dontSendNotification);
+
+    juce::String right;
+    juce::Colour col (textLo);   // reposo = punto apagado
+
+    if (measuring)
     {
-        frame.measureStatus.setText ("voice calibrated", juce::dontSendNotification);
-        return;
+        right = "LISTENING " + juce::String ((int) (proc.getMeasureProgress() * 100.0f)) + "%";
+        col = Colour (cWarn);
+    }
+    else if (proc.hasMeasured())
+    {
+        right = "CALIBRATED";
+        col = Colour (cSafe);
+    }
+    else
+    {
+        // Diagnóstico del último finish(): por qué no quedó un perfil válido.
+        switch (proc.getLastFinishReason())
+        {
+            case 2:  right = "NO SIGNAL"; col = Colour (cDanger); break;
+            case 3:  right = "NO VOICE";  col = Colour (cDanger); break;
+            default: right = "READY";     col = Colour (textLo);  break;
+        }
     }
 
-    // Diagnóstico: motivo de invalidez del último finish().
-    const int r = proc.getLastFinishReason();
-    if (r == 2)
-        frame.measureStatus.setText ("not measured — no signal (is audio reaching the track?)",
-                                     juce::dontSendNotification);
-    else if (r == 3)
-        frame.measureStatus.setText ("not measured — no voice content",
-                                     juce::dontSendNotification);
-    else
-        frame.measureStatus.setText ("not measured",
-                                     juce::dontSendNotification);
+    if (frame.statusRight != right || frame.statusColour != col)
+    {
+        frame.statusRight  = right;
+        frame.statusColour = col;
+        frame.repaint();     // el dot + el texto los pinta el Frame
+    }
 }
 
 void OpalineAudioProcessorEditor::positionShineForProfile()
@@ -237,11 +339,8 @@ void OpalineAudioProcessorEditor::measurePressed()
         pendingPosition = true;   // el timer colocará el Shine cuando llegue el perfil
     }
 
-    frame.measureBtn.setButtonText (measuring ? "CAPTURING…" : "MEASURE");
     frame.measureBtn.setToggleState (measuring, juce::dontSendNotification);
-    frame.measureStatus.setText (measuring ? "listen — analyzing your voice"
-                                           : (proc.hasMeasured() ? "voice calibrated" : "not measured"),
-                                 juce::dontSendNotification);
+    updateFooter();
     repaint();
 }
 
@@ -249,10 +348,11 @@ void OpalineAudioProcessorEditor::paint (juce::Graphics& g)
 {
     g.fillAll (Colour (bg));
 
+    /* Única sombra del layout: box-shadow 0 8px 16px rgba(0,0,0,0.5) del panel. */
     if (currentScale > 0.0f)
     {
         const auto fb = frame.getBoundsInParent().toFloat();
-        juce::DropShadow sh (Colour (0x8c000000), 24, { 0, 8 });
+        juce::DropShadow sh (Colour (0x80000000), 16, { 0, 8 });
         sh.drawForRectangle (g, fb.toNearestInt());
     }
 }

@@ -60,6 +60,7 @@ void Knob::setValue (double v, bool notify)
     if (juce::exactlyEqual (v, value)) return;
     value = v;
     repaint();
+    if (onValueChanged) onValueChanged();
     if (notify && onChange) onChange (value);
 }
 
@@ -98,13 +99,26 @@ void Knob::resized()
 
 void Knob::paint (juce::Graphics& g)
 {
-    const float cw = knobDiameter();
-    const float ch = knobDiameter();
-    const float cx = cw / 2.0f;
-    const float cy = ch / 2.0f;
-
+    const float  cw = knobDiameter();
+    const float  ch = knobDiameter();
+    const float  cx = cw / 2.0f;
+    const float  cy = ch / 2.0f;
     const double norm       = clampNorm ((value - min) / (max - min));
     const double valueAngle = normToAngle (norm);
+
+    if (finish == Finish::Precision)
+        paintPrecisionDial (g, cx, cy, valueAngle, norm);
+    else
+        paintBrandDial (g, cx, cy, valueAngle, norm);
+
+    paintText (g, cw, ch);
+}
+
+/*============================================================================*/
+
+void Knob::paintBrandDial (juce::Graphics& g, float cx, float cy,
+                           double valueAngle, double norm)
+{
     const bool   active     = isActive();
 
     const float trackR = size / 2.0f - 4.0f;
@@ -245,7 +259,54 @@ void Knob::paint (juce::Graphics& g)
                        3.4f, 3.4f);
     }
 
-    /* ── Cara del dial — grafito abombado (radial desde arriba-izq) ── */
+    /* ── Cara del dial — grafito abombado o metal pulido ── */
+    if (finish == Finish::Metallic)
+    {
+        /* Metal: gradiente diagonal hi→mid→lo (plano, poco contraste) */
+        juce::ColourGradient face (metalHi(), cx - dialR * 0.55f, cy - dialR * 0.80f,
+                                   metalLo(), cx + dialR * 0.60f, cy + dialR * 0.90f, false);
+        face.addColour (0.55, metalMid());
+        g.setGradientFill (face);
+        g.fillEllipse (cx - dialR, cy - dialR, dialR * 2.0f, dialR * 2.0f);
+
+        /* Cepillado radial sutil (plástico no, metal) */
+        {
+            juce::Graphics::ScopedSaveState ss (g);
+            g.reduceClipRegion (juce::Rectangle<float> (cx - dialR, cy - dialR,
+                                                         dialR * 2.0f, dialR * 2.0f).toNearestInt());
+            for (int i = 0; i < 90; ++i)
+            {
+                if ((i & 1) == 0) continue;
+                const double a = i / 90.0 * juce::MathConstants<double>::twoPi;
+                juce::Path br;
+                br.startNewSubPath (cx, cy);
+                br.lineTo (cx + (float) std::cos (a) * dialR,
+                           cy + (float) std::sin (a) * dialR);
+                g.setColour (juce::Colours::white.withAlpha (0.022f));
+                g.strokePath (br, juce::PathStrokeType (1.0f));
+            }
+        }
+
+        /* Specular superior-izquierda */
+        {
+            juce::ColourGradient sp (juce::Colours::white.withAlpha (0.30f),
+                                     cx - dialR * 0.42f, cy - dialR * 0.58f,
+                                     juce::Colours::white.withAlpha (0.0f),
+                                     cx - dialR * 0.42f, cy - dialR * 0.58f, true);
+            sp.clearColours();
+            sp.addColour (0.0, juce::Colours::white.withAlpha (0.30f));
+            sp.addColour (1.0, juce::Colours::white.withAlpha (0.0f));
+            g.setGradientFill (sp);
+            g.fillEllipse (cx - dialR * 0.74f, cy - dialR * 0.88f,
+                           dialR * 1.18f, dialR * 0.88f);
+        }
+
+        juce::Path rim;
+        rim.addEllipse (cx - dialR + 0.6f, cy - dialR + 0.6f,
+                        (dialR - 0.6f) * 2.0f, (dialR - 0.6f) * 2.0f);
+        strokeButtPath (g, rim, 1.2f, Colour (0x59000000));
+    }
+    else
     {
         juce::ColourGradient face (Colour (0xff32323d), sx, sy,
                                    Colour (0xff191922), cx, cy, true);
@@ -317,10 +378,13 @@ void Knob::paint (juce::Graphics& g)
         blade.lineTo          (cx + ca * pIn   - nx * bHalf, cy + sa * pIn   - ny * bHalf);
         blade.closeSubPath();
 
-        g.setColour (active ? Colour (0xffffffff) : Colour (0xebf0f0f4));
+        g.setColour (finish == Finish::Metallic
+                        ? Colour (active ? 0xff1b1b24 : 0xff2c2c37)
+                        : (active ? Colour (0xffffffff) : Colour (0xebf0f0f4)));
         g.fillPath (blade);
         juce::PathStrokeType st (0.7f, juce::PathStrokeType::mitered, juce::PathStrokeType::butt);
-        g.setColour (Colour (0x59000000));
+        g.setColour (finish == Finish::Metallic ? Colour (0x33ffffff)
+                                                : Colour (0x59000000));
         g.strokePath (blade, st);
     }
 
@@ -350,23 +414,185 @@ void Knob::paint (juce::Graphics& g)
         g.fillEllipse (cx - dialR, cy - dialR, dialR * 2.0f, dialR * 2.0f);
     }
 
-    /* ── Readout (.knob-val) + label (.knob-lbl) debajo ── */
-    const bool revealReadout = ! (readoutReveal && ! active);
-    if (revealReadout)
+}
+
+/* ── Readout (.knob-val) + label (.knob-lbl) debajo del canvas ──
+   Con showReadout=false el texto lo dibuja el padre (layout Precision, que
+   necesita label ARRIBA del valor y tipografías que no son las de la serie). */
+void Knob::paintText (juce::Graphics& g, float cw, float ch)
+{
+    const bool active = isActive();
+    int y = (int) ch + rowGap;
+
+    if (showReadout)
     {
-        g.setFont (font (tMono()));
-        g.setColour (active ? accent() : Colour (textHi));
-        const int valY = (int) ch + rowGap;
-        g.drawText (displayText(), 0, valY, (int) cw, readoutH,
-                    juce::Justification::centredTop, false);
+        const bool revealReadout = ! (readoutReveal && ! active);
+        if (revealReadout)
+        {
+            g.setFont (font (tMono()));
+            g.setColour (active ? accent() : Colour (textHi));
+            g.drawText (displayText(), 0, y, (int) cw, readoutH,
+                        juce::Justification::centredTop, false);
+        }
+        y += readoutH;
     }
+
     if (showLabel && labelText.isNotEmpty())
     {
         g.setFont (font (tDisplayMD()));
-        g.setColour (active ? juce::Colours::white.withAlpha (0.5f) : Colour (textLo));
-        const int lblY = (int) ch + rowGap + readoutH;
-        g.drawText (labelText, 0, lblY, (int) cw, labelH,
+        g.setColour (active ? juce::Colours::white.withAlpha (0.5f) : Colour (textDim));
+        g.drawText (labelText, 0, y, (int) cw, labelH,
                     juce::Justification::centredTop, false);
+    }
+}
+
+/*============================================================================*/
+
+/* Dial "instrumento de precision" para Opaline — PORT 1:1 de
+   opaline_design.html (la fuente de verdad aprobada). Capas, en orden:
+
+     .knob-hero / .knob-small          pocillo  : radial 34%/30% (hero)
+                                                 36%/32% (chico)
+                                                 #242831 -> #1d2129 -> #15181e
+     .knob-hero-metal / -small-metal   aro acero: linear 180deg
+                                                 #a9a9b3 -> #75757f -> #484852
+                                                 + luz radial encima
+     .knob-hero-inset / -small-inset   cara     : radial 38%/32% (hero)
+                                                 38%/34% (chico)
+                                                 #22252e -> #1d2129 -> #13161c
+     .knob-center-mark                 marca 12h del cero bipolar (solo bipolar)
+     .knob-hero-indicator              aguja BLANCA 2px del centro al borde,
+                                       cap redondo; ::after (solo hero activo)
+                                       tine los 24px exteriores con el opalo
+     .knob-hero-dot / .knob-small-dot  punto #0e1013 con hairline, ENCIMA
+
+   Geometria del mockup (px CSS sobre el canvas): el hero mide 156 (wellR 78,
+   metal 67, inset 64, aguja 54, dot 6) y el chico 72 (wellR 36, metal 30,
+   inset 28, aguja 26, dot 4). Los dos knobs del plugin tienen exactamente esos
+   diametros, asi que se usan los valores absolutos del diseno.
+   NO hay ticks, arco de valor, bisel ni sello central: la posicion la lee la
+   aguja, que es lo que hace que lea instrumento y no "plugin generico". */
+void Knob::paintPrecisionDial (juce::Graphics& g, float cx, float cy,
+                              double valueAngle, double norm)
+{
+    juce::ignoreUnused (norm);
+
+    const bool  active = isActive();
+    const float dia    = knobDiameter();
+    const float wellR  = dia * 0.5f;
+    const bool  hero   = dia > 100.0f;
+
+    /* Geometria exacta del mockup (px CSS). */
+    const float metalR = hero ? 67.0f : 30.0f;
+    const float insetR = hero ? 64.0f : 28.0f;
+    const float ptrLen = hero ? 54.0f : 26.0f;
+    const float dotR   = hero ? 3.0f  : 2.0f;
+
+    /* ── 1. Pocillo: radial 34%/30% (hero) · 36%/32% (chico) ──
+       El radio del gradiente es `farthest-corner` de CSS: 1.9241*wellR en el
+       hero, 1.8678*wellR en el chico. */
+    {
+        const float ox = hero ? -0.32f : -0.28f;
+        const float oy = hero ? -0.40f : -0.36f;
+        const float gr = wellR * (hero ? 1.9241f : 1.8678f);
+        juce::ColourGradient well (Colour (0xff242831), cx + ox * wellR, cy + oy * wellR,
+                                   Colour (0xff15181e), cx + ox * wellR + gr, cy + oy * wellR, true);
+        well.addColour (hero ? 0.48f : 0.55f, Colour (0xff1d2129));
+        g.setGradientFill (well);
+        g.fillEllipse (cx - wellR, cy - wellR, wellR * 2.0f, wellR * 2.0f);
+
+        g.setColour (line());   /* border 1px rgba(255,255,255,0.095) */
+        g.drawEllipse (cx - wellR + 0.5f, cy - wellR + 0.5f,
+                       (wellR - 0.5f) * 2.0f, (wellR - 0.5f) * 2.0f, 1.0f);
+    }
+
+    /* ── 2. Aro de acero: dos fills (linear 180deg + luz radial) ──
+       Visible solo 3px (hero) / 2px (chico) porque la cara lo tapa casi todo. */
+    {
+        juce::Graphics::ScopedSaveState ss (g);
+        juce::Path disc;
+        disc.addEllipse (cx - metalR, cy - metalR, metalR * 2.0f, metalR * 2.0f);
+        g.reduceClipRegion (disc, {});
+
+        juce::ColourGradient metal (metalHi(), cx, cy - metalR,
+                                    metalLo(), cx, cy + metalR, false);
+        metal.addColour (hero ? 0.52f : 0.50f, metalMid());
+        g.setGradientFill (metal);
+        g.fillPath (disc);
+
+        const float ox = hero ? -0.32f : -0.28f;
+        const float oy = hero ? -0.44f : -0.40f;
+        const float gr = metalR * (hero ? 1.9534f : 1.8970f);
+        juce::ColourGradient light (juce::Colours::white.withAlpha (hero ? 0.30f : 0.28f),
+                                    cx + ox * metalR, cy + oy * metalR,
+                                    juce::Colours::white.withAlpha (0.0f),
+                                    cx + ox * metalR + gr, cy + oy * metalR, true);
+        light.addColour (hero ? 0.34f : 0.36f,
+                         juce::Colours::white.withAlpha (hero ? 0.07f : 0.06f));
+        light.addColour (hero ? 0.58f : 0.60f, juce::Colours::white.withAlpha (0.0f));
+        g.setGradientFill (light);
+        g.fillPath (disc);
+    }
+
+    /* ── 3. Cara oscura: radial 38%/32% (hero) · 38%/34% (chico) ── */
+    {
+        const float ox = -0.24f;
+        const float oy = hero ? -0.36f : -0.32f;
+        const float gr = insetR * (hero ? 1.8405f : 1.8110f);
+        juce::ColourGradient face (Colour (0xff22252e), cx + ox * insetR, cy + oy * insetR,
+                                   Colour (0xff13161c), cx + ox * insetR + gr, cy + oy * insetR, true);
+        face.addColour (hero ? 0.60f : 0.62f, Colour (0xff1d2129));
+        g.setGradientFill (face);
+        g.fillEllipse (cx - insetR, cy - insetR, insetR * 2.0f, insetR * 2.0f);
+
+        g.setColour (lineFaint());   /* border 1px rgba(255,255,255,0.055) */
+        g.drawEllipse (cx - insetR + 0.5f, cy - insetR + 0.5f,
+                       (insetR - 0.5f) * 2.0f, (insetR - 0.5f) * 2.0f, 1.0f);
+    }
+
+    /* ── 4. Marca del cero bipolar: hairline vertical a las 12h sobre el aro ──
+       (.knob-center-mark: 1x8px, top:4px en el wrap de 72 -> radio 24..32) */
+    if (bipolar)
+    {
+        juce::Path t;
+        radialLine (t, cx, cy, normToAngle (0.5), insetR - 4.0f, metalR + 2.0f);
+        strokeButtPath (g, t, 1.0f, juce::Colours::white.withAlpha (0.17f));
+    }
+
+    /* ── 5. Aguja blanca: del centro al borde, 2px, cap redondo ── */
+    {
+        const float ca = (float) std::cos (valueAngle), sa = (float) std::sin (valueAngle);
+        juce::Path needle;
+        needle.startNewSubPath (cx, cy);
+        needle.lineTo (cx + ca * ptrLen, cy + sa * ptrLen);
+        strokeRoundedPath (g, needle, 2.0f,
+                           hero ? juce::Colours::white.withAlpha (0.90f)
+                                : Colour (0xffeceef1).withAlpha (0.92f));
+
+        /* ::after — solo `.knob-hero-wrap.is-active`: tramo EXTERIOR de 24px
+           teñido con el opalo frio->accent->calido al 60% de opacidad. */
+        if (hero && active)
+        {
+            const float r0 = ptrLen - 24.0f;   /* 54 -> 30 */
+            juce::Path tip;
+            tip.startNewSubPath (cx + ca * r0, cy + sa * r0);
+            tip.lineTo (cx + ca * ptrLen, cy + sa * ptrLen);
+            juce::ColourGradient op (opalCold().withAlpha (0.6f), cx + ca * r0, cy + sa * r0,
+                                     opalWarm().withAlpha (0.6f), cx + ca * ptrLen, cy + sa * ptrLen,
+                                     false);
+            op.addColour (0.55f, accent().withAlpha (0.6f));
+            g.setGradientFill (op);
+            g.strokePath (tip, juce::PathStrokeType (2.0f, juce::PathStrokeType::curved,
+                                                     juce::PathStrokeType::rounded));
+        }
+    }
+
+    /* ── 6. Punto central (#0e1013 + hairline), ENCIMA de la aguja ── */
+    {
+        g.setColour (Colour (surface));
+        g.fillEllipse (cx - dotR, cy - dotR, dotR * 2.0f, dotR * 2.0f);
+        g.setColour (line());
+        g.drawEllipse (cx - dotR, cy - dotR, dotR * 2.0f, dotR * 2.0f, 1.0f);
     }
 }
 

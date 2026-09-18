@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OPALINE - Vocal Polish</title>
+<style>
+  @page {
+    size: A4;
+    margin: 15mm 12mm;
+    background-color: #0b0d12;
+  }
+
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    background-color: #0b0d12;
+    color: #a3a8be;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 11pt;
+    line-height: 1.4;
+    display: block;
+  }
+
+  /* Main Plugin Frame */
+  .plugin-container {
+    width: 600px;
+    margin: 0 auto;
+    background: linear-gradient(180deg, #181b24 0%, #10121a 100%);
+    border: 1px solid #2a2e3d;
+    border-top: 1px solid #3d4255;
+    border-radius: 12px;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.8), 0 0 1px rgba(255,255,255,0.1) inset;
+    padding: 24px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Screws in corners for industrial look */
+  .screw {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, #4a4f62, #181a22);
+    box-shadow: inset 0 1px 1px rgba(255,255,255,0.2), 0 1px 2px rgba(0,0,0,0.8);
+  }
+  .screw::after {
+    content: '';
+    position: absolute;
+    top: 4px;
+    left: 2px;
+    width: 6px;
+    height: 1.5px;
+    background: #0f1015;
+    transform: rotate(45deg);
+  }
+  .screw.tl { top: 10px; left: 10px; }
+  .screw.tr { top: 10px; right: 10px; }
+  .screw.bl { bottom: 10px; left: 10px; }
+  .screw.br { bottom: 10px; right: 10px; }
+
+  /* Top Bar Header */
+  .header-bar {
+    display: table;
+    width: 100%;
+    margin-bottom: 20px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    padding-bottom: 12px;
+  }
+
+  .header-left {
+    display: table-cell;
+    vertical-align: middle;
+  }
+
+  .logo {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: 4px;
+    color: #e2e8f0;
+    text-shadow: 0 0 12px rgba(160, 175, 255, 0.2);
+    font-family: 'Helvetica Neue', sans-serif;
+  }
+
+  .subtitle {
+    font-size: 9px;
+    letter-spacing: 3px;
+    color: #636b83;
+    font-weight: 700;
+    margin-top: 2px;
+  }
+
+  .header-right {
+    display: table-cell;
+    vertical-align: middle;
+    text-align: right;
+  }
+
+  /* Buttons & Controls */
+  .btn {
+    display: inline-block;
+    background: linear-gradient(180deg, #282c3a 0%, #1b1e28 100%);
+    border: 1px solid #363b4e;
+    border-bottom-color: #12141c;
+    border-radius: 4px;
+    color: #8c94a9;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    padding: 6px 14px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+    text-transform: uppercase;
+  }
+
+  .btn-active {
+    background: linear-gradient(180deg, #32384a 0%, #222634 100%);
+    color: #c5ceea;
+    border-color: #48506a;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.5), 0 0 8px rgba(100, 130, 255, 0.2);
+  }
+
+  .preset-selector {
+    display: inline-block;
+    background: #0d0f15;
+    border: 1px solid #232736;
+    border-radius: 4px;
+    padding: 5px 12px;
+    font-size: 11px;
+    color: #94a3b8;
+    margin-right: 8px;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.6);
+  }
+
+  /* Metering Section */
+  .meters-row {
+    display: table;
+    width: 100%;
+    margin-bottom: 24px;
+  }
+
+  .meter-box {
+    display: table-cell;
+    width: 48%;
+    background: #0c0e14;
+    border: 1px solid #1f2330;
+    border-radius: 6px;
+    padding: 10px 12px;
+    box-shadow: inset 0 3px 6px rgba(0,0,0,0.7);
+  }
+
+  .meter-box-space {
+    display: table-cell;
+    width: 4%;
+  }
+
+  .meter-header {
+    display: table;
+    width: 100%;
+    font-size: 9px;
+    color: #475569;
+    margin-bottom: 6px;
+    font-family: monospace;
+  }
+
+  .meter-channel {
+    display: table;
+    width: 100%;
+    margin-bottom: 4px;
+  }
+
+  .meter-label {
+    display: table-cell;
+    width: 35px;
+    font-size: 9px;
+    font-weight: bold;
+    color: #64748b;
+  }
+
+  .meter-bar-container {
+    display: table-cell;
+    vertical-align: middle;
+  }
+
+  .meter-bar {
+    height: 8px;
+    background: #151821;
+    border-radius: 2px;
+    overflow: hidden;
+    position: relative;
+    border: 1px solid #090a0e;
+  }
+
+  .meter-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #3b82f6 0%, #6366f1 70%, #ec4899 90%, #ef4444 100%);
+    box-shadow: 0 0 8px rgba(99, 102, 241, 0.6);
+  }
+
+  .meter-ticks {
+    display: table;
+    width: 100%;
+    font-size: 8px;
+    color: #334155;
+    font-family: monospace;
+    margin-top: 4px;
+    text-align: justify;
+  }
+
+  /* Center Screen & Main Control Area */
+  .display-section {
+    background: #090b10;
+    border: 1px solid #1d212d;
+    border-radius: 8px;
+    padding: 20px;
+    position: relative;
+    box-shadow: inset 0 4px 12px rgba(0,0,0,0.8);
+    margin-bottom: 24px;
+    text-align: center;
+  }
+
+  /* Simulated Spectrum Visualizer in background */
+  .spectrum-bg {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    opacity: 0.15;
+    display: table;
+    width: calc(100% - 20px);
+    height: calc(100% - 20px);
+  }
+
+  .spectrum-bar {
+    display: table-cell;
+    vertical-align: bottom;
+    padding: 0 2px;
+  }
+  
+  .spectrum-inner {
+    background: linear-gradient(0deg, #6366f1, #a855f7);
+    border-radius: 2px 2px 0 0;
+  }
+
+  /* Knobs */
+  .main-knob-container {
+    position: relative;
+    z-index: 2;
+    margin: 10px auto 15px auto;
+    width: 160px;
+    height: 160px;
+  }
+
+  .knob-outer-ring {
+    width: 160px;
+    height: 160px;
+    border-radius: 50%;
+    background: conic-gradient(from 220deg, #6366f1 0%, #a855f7 180deg, #222736 180deg, #222736 100%);
+    padding: 8px;
+    box-shadow: 0 0 20px rgba(99, 102, 241, 0.3), inset 0 2px 5px rgba(0,0,0,0.8);
+  }
+
+  .knob-body {
+    width: 144px;
+    height: 144px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #2d3243 0%, #151720 70%, #0d0e14 100%);
+    box-shadow: 0 10px 20px rgba(0,0,0,0.6), inset 0 1px 1px rgba(255,255,255,0.2);
+    position: relative;
+  }
+
+  .knob-cap {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: repeating-conic-gradient(#1e222e 0deg 5deg, #181b25 5deg 10deg);
+    border: 1px solid #2d3345;
+  }
+
+  .knob-indicator {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    width: 4px;
+    height: 22px;
+    margin-left: -2px;
+    background: #e2e8f0;
+    border-radius: 2px;
+    box-shadow: 0 0 6px #ffffff;
+  }
+
+  .readout-value {
+    font-size: 26px;
+    font-weight: 800;
+    color: #f1f5f9;
+    letter-spacing: -0.5px;
+    text-shadow: 0 0 10px rgba(255,255,255,0.3);
+  }
+
+  .readout-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: #818cf8;
+    text-transform: uppercase;
+    margin-top: 2px;
+  }
+
+  /* Bottom Secondary Controls Row */
+  .bottom-controls {
+    display: table;
+    width: 100%;
+    margin-top: 10px;
+  }
+
+  .sub-control {
+    display: table-cell;
+    width: 50%;
+    text-align: center;
+    vertical-align: top;
+  }
+
+  .small-knob-container {
+    margin: 0 auto 10px auto;
+    width: 90px;
+    height: 90px;
+    position: relative;
+  }
+
+  .small-knob-ring {
+    width: 90px;
+    height: 90px;
+    border-radius: 50%;
+    background: conic-gradient(from 220deg, #38bdf8 0%, #3b82f6 130deg, #1e2332 130deg);
+    padding: 5px;
+    box-shadow: 0 0 12px rgba(56, 189, 248, 0.2);
+  }
+
+  .small-knob-ring.alt {
+    background: conic-gradient(from 220deg, #f43f5e 0%, #fb923c 230deg, #1e2332 230deg);
+    box-shadow: 0 0 12px rgba(244, 63, 94, 0.2);
+  }
+
+  .small-knob-body {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #282c3c 0%, #12141c 100%);
+    box-shadow: 0 6px 12px rgba(0,0,0,0.5);
+    position: relative;
+  }
+
+  .small-knob-indicator {
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    width: 3px;
+    height: 14px;
+    margin-left: -1.5px;
+    background: #cbd5e1;
+    border-radius: 2px;
+  }
+
+  .sub-value {
+    font-size: 14px;
+    font-weight: 700;
+    color: #cbd5e1;
+  }
+
+  .sub-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    color: #64748b;
+    margin-top: 2px;
+  }
+
+  /* Bottom Footer Info Bar */
+  .footer-bar {
+    margin-top: 20px;
+    padding-top: 12px;
+    border-top: 1px solid #1a1d27;
+    display: table;
+    width: 100%;
+    font-size: 9px;
+    color: #475569;
+    letter-spacing: 1px;
+  }
+
+  .footer-left {
+    display: table-cell;
+    text-align: left;
+  }
+
+  .footer-right {
+    display: table-cell;
+    text-align: right;
+  }
+
+  .status-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #10b981;
+    box-shadow: 0 0 6px #10b981;
+    margin-right: 4px;
+  }
+</style>
+</head>
+<body>
+
+<div class="plugin-container">
+  <!-- Industrial Screws -->
+  <div class="screw tl"></div>
+  <div class="screw tr"></div>
+  <div class="screw bl"></div>
+  <div class="screw br"></div>
+
+  <!-- Header Section -->
+  <div class="header-bar">
+    <div class="header-left">
+      <div class="logo">OPALINE</div>
+      <div class="subtitle">VOCAL POLISH & DYNAMICS</div>
+    </div>
+    <div class="header-right">
+      <div class="preset-selector">Preset: Lead Vocal Clarity ▾</div>
+      <div class="btn">A / B</div>
+      <div class="btn btn-active">Bypass</div>
+    </div>
+  </div>
+
+  <!-- Input / Output Meters -->
+  <div class="meters-row">
+    <div class="meter-box">
+      <div class="meter-header">
+        <span>INPUT LEVEL</span>
+        <span style="float: right;">-18.2 dBFS</span>
+      </div>
+      <div class="meter-channel">
+        <div class="meter-label">IN L</div>
+        <div class="meter-bar-container">
+          <div class="meter-bar"><div class="meter-fill" style="width: 68%;"></div></div>
+        </div>
+      </div>
+      <div class="meter-channel">
+        <div class="meter-label">IN R</div>
+        <div class="meter-bar-container">
+          <div class="meter-bar"><div class="meter-fill" style="width: 64%;"></div></div>
+        </div>
+      </div>
+      <div class="meter-ticks">
+        <span>-40</span><span>-24</span><span>-12</span><span>-6</span><span>0</span>
+      </div>
+    </div>
+
+    <div class="meter-box-space"></div>
+
+    <div class="meter-box">
+      <div class="meter-header">
+        <span>OUTPUT LEVEL</span>
+        <span style="float: right;">-14.0 dBFS</span>
+      </div>
+      <div class="meter-channel">
+        <div class="meter-label">OUT L</div>
+        <div class="meter-bar-container">
+          <div class="meter-bar"><div class="meter-fill" style="width: 78%;"></div></div>
+        </div>
+      </div>
+      <div class="meter-channel">
+        <div class="meter-label">OUT R</div>
+        <div class="meter-bar-container">
+          <div class="meter-bar"><div class="meter-fill" style="width: 75%;"></div></div>
+        </div>
+      </div>
+      <div class="meter-ticks">
+        <span>-40</span><span>-24</span><span>-12</span><span>-6</span><span>0</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Center Control Panel -->
+  <div class="display-section">
+    <!-- Spectrum Background Visualizer -->
+    <div class="spectrum-bg">
+      <div class="spectrum-bar"><div class="spectrum-inner" style="height: 30%;"></div></div>
+      <div class="spectrum-bar"><div class="spectrum-inner" style="height: 45%;"></div></div>
+      <div class="spectrum-bar"><div class="spectrum-inner" style="height: 60%;"></div></div>
+      <div class="spectrum-bar"><div class="spectrum-inner" style="height: 80%;"></div></div>
+      <div class="spectrum-bar"><div class="spectrum-inner" style="height: 95%;"></div></div>
+      <div class="spectrum-bar"><div class="spectrum-inner" style="height: 70%;"></div></div>
+      <div class="spectrum-bar"><div class="spectrum-inner" style="height: 85%;"></div></div>
+      <div class="spectrum-bar"><div class="spectrum-inner" style="height: 60%;"></div></div>
+      <div class="spectrum-bar"><div class="spectrum-inner" style="height: 40%;"></div></div>
+      <div class="spectrum-bar"><div class="spectrum-inner" style="height: 25%;"></div></div>
+    </div>
+
+    <!-- Main Shine Knob -->
+    <div class="main-knob-container">
+      <div class="knob-outer-ring">
+        <div class="knob-body">
+          <div class="knob-cap">
+            <div class="knob-indicator" style="transform: rotate(25deg); transform-origin: bottom center;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="readout-value">47%</div>
+    <div class="readout-label">SHINE ENGINE</div>
+  </div>
+
+  <!-- Secondary Knobs Row -->
+  <div class="bottom-controls">
+    <div class="sub-control">
+      <div class="small-knob-container">
+        <div class="small-knob-ring">
+          <div class="small-knob-body">
+            <div class="small-knob-indicator" style="transform: rotate(-30deg); transform-origin: bottom center;"></div>
+          </div>
+        </div>
+      </div>
+      <div class="sub-value">0%</div>
+      <div class="sub-label">BODY / AIR</div>
+    </div>
+
+    <div class="sub-control">
+      <div class="small-knob-container">
+        <div class="small-knob-ring alt">
+          <div class="small-knob-body">
+            <div class="small-knob-indicator" style="transform: rotate(60deg); transform-origin: bottom center;"></div>
+          </div>
+        </div>
+      </div>
+      <div class="sub-value">70%</div>
+      <div class="sub-label">OUTPUT GAIN</div>
+    </div>
+  </div>
+
+  <!-- Footer Info Bar -->
+  <div class="footer-bar">
+    <div class="footer-left">
+      <span class="status-dot"></span> DSP ENGINE ONLINE &nbsp;|&nbsp; 48 kHz / 24-bit
+    </div>
+    <div class="footer-right">
+      v2.4.0 PRO
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -47,12 +47,26 @@ juce::Font font(const Type& t)
 
     const Family* fam = (t.id == FontId::Inter) ? &inter : (t.id == FontId::Barlow) ? &barlow : &mono;
 
-    /* Peso por defecto de la marca: 500/600 según familia; bold sube al 700. */
-    Typeface::Ptr tf = t.bold ? fam->bold
-                              : (t.id == FontId::Inter ? fam->medium : fam->semibold);
+    /* Peso explícito si se pidió; si no, el default de la marca:
+       Inter 500 / Barlow 600 / Mono 600, y bold sube al 700.
+       OJO: Inter y Mono son fuentes VARIABLES con wght default 400 —
+       createSystemTypefaceFor devuelve esa instancia, así que 400/500/600/700
+       se ven iguales. Sólo Barlow (estática) respeta el peso. */
+    Typeface::Ptr tf;
+    if      (t.weight >= 700) tf = fam->bold;
+    else if (t.weight >= 600) tf = fam->semibold;
+    else if (t.weight >= 500) tf = fam->medium;
+    else if (t.weight >= 400) tf = fam->regular;
+    else tf = t.bold ? fam->bold
+                     : (t.id == FontId::Inter ? fam->medium : fam->semibold);
     if (tf == nullptr) tf = fam->regular;
 
-    auto options = juce::FontOptions().withTypeface(tf).withHeight(t.height);
+    /* OJO: withHeight() fija (ascent + descent), NO el em box. En Barlow/Inter/
+       Mono esa suma ronda 1.2, así que un height de 18 daba glyphs de ~10.5px
+       en vez de 12.6: todo el texto salía ~17% más chico que el diseño, que
+       está expresado en px CSS (= puntos). withPointHeight() es la API correcta:
+       el valor que se pasa es el em box, igual que font-size en CSS. */
+    auto options = juce::FontOptions().withTypeface (tf).withPointHeight (t.height);
     auto f = juce::Font(options);
     f.setExtraKerningFactor(t.kerning);
     return f;
