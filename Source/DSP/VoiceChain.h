@@ -13,9 +13,10 @@
      5  Resonance suppressor 2-5k (el "sedoso", centro = Learn)
      6  Multiband lodos 250 Hz
      7  Harmonic exciter >2k
-     8  Air shelf ~12k (el "precio")
-     9  Parallel filtered bus (densidad sin lodo ni hiss)
-   ============================================================ */
+      8  Air shelf ~12k (el "precio")
+      9  Parallel filtered bus (densidad sin lodo ni hiss)
+     10  Tape glue final (A800 vocal: picos laminados + tercer armónico suave)
+    ============================================================ */
 
 class VoiceChain
 {
@@ -92,13 +93,19 @@ private:
         float lastCentre = -1.0f;
     };
 
-    /* 4: compresor óptico estilo LA-2A */
+    /* 4: compresor óptico estilo LA-2A — CASCADA de dos etapas:
+       A "leveler" (densidad de cuerpo) + B "picos" (redondea lo que quedó).
+       Mismo GR total que un comp profundo repartido en dos knees suaves
+       -> densidad "on-air" sin bombeo. Ganancia persistente entre bloques. */
     struct OptoComp
     {
         void prepare (double sr, int block, int nch);
         void reset();
         float process (juce::AudioBuffer<float>& b, float amount);
-        EnvFollower env;
+        EnvFollower env;       // etapa A (lenta: 10/250)
+        EnvFollower env2;      // etapa B (algo más rápida: 5/150)
+        float gainA = 1.0f;    // estado de ganancia persistente por etapa
+        float gainB = 1.0f;
         double sampleRate = 0; int nch = 2;
     };
 
@@ -146,17 +153,18 @@ private:
                                                                        float freq,
                                                                        float q,
                                                                        float gainDb);
-        juce::dsp::IIR::Filter<float> highpass, lowMidCut, mudCut, airShelf, presence;
+        juce::dsp::IIR::Filter<float> highpass, lowMidCut, mudCut, airShelf, presence, presence4k;
         double sampleRate = 0; int nch = 2;
         /* Caché de coeficientes (histéresis): solo se reconstruye el filtro y se
-           llama a reset() cuando la frecuencia/gain real cambian de forma
-           significativa. Evita heap-alloc de Coefficients y el reset() por
-           bloque que borra el estado (posibles clics en fronteras de bloque). */
+            llama a reset() cuando la frecuencia/gain real cambian de forma
+            significativa. Evita heap-alloc de Coefficients y el reset() por
+            bloque que borra el estado (posibles clics en fronteras de bloque). */
         float lastHighpassF = 85.0f;
         float lastLowMidF = 320.0f,  lastLowMidG = 0.0f;
         float lastMudF    = 250.0f,  lastMudG    = 0.0f;
         float lastAirF    = 12000.0f, lastAirG   = 0.0f;
-        float lastPresF   = 2500.0f, lastPresG   = 0.0f;
+        float lastPresF   = 2500.0f,  lastPresG  = 0.0f;
+        float lastPres4kG = 0.0f;
     };
 
     /* 9: paralelo filtrado (comp 8:1 + filtros, mezcla bajo seco) */
@@ -172,12 +180,30 @@ private:
         double sampleRate = 0; int nch = 2;
     };
 
+    /* 10: tape glue final (Studer A800 retuneado a VOZ, del modelo de
+       SignoffNative): 30 IPS (drive bajo, saturación sutil), SIN head bump
+       (el HPF adaptativo ya limpia 40-150 Hz), pre-énfasis +2 dB @ 3.5k →
+       tanh normalizado → de-énfasis (tercer armónico suave, no "arena"),
+       compresión de picos por envolvente common-mode (L+R)/2 hasta ~3.5 dB
+       (el "laminador") y DC blocker. Mezcla dry/wet escalada por Shine.
+       Cero latencia, cero allocs en audio. */
+    struct TapeStage
+    {
+        void prepare (double sr, int block, int nch);
+        void reset();
+        float process (juce::AudioBuffer<float>& b, float amount);
+        juce::dsp::IIR::Filter<float> pre[2], de[2], dc[2];
+        EnvFollower env;
+        double sampleRate = 0; int nch = 2;
+    };
+
     DeEsser deesser;
     OptoComp optical;
     ResonanceSuppressor suppressor;
     HarmonicExciter exciter;
     EqStage eq;
     ParallelBus parallel;
+    TapeStage tape;
 
     LearnProfile profile;
     juce::LinearSmoothedValue<float> amount_s { 0.0f };
@@ -188,7 +214,7 @@ private:
 
 public:
     /* Bits de etapa para depuración/self-test (1=EQ,2=de-esser,4=óptico,
-       8=supresor,16=exciter,32=paralelo). */
+        8=supresor,16=exciter,32=paralelo,64=tape). */
     enum PatchedStage : unsigned int
     {
         kStageEq        = 1u << 0,
@@ -197,5 +223,6 @@ public:
         kStageSuppressor= 1u << 3,
         kStageExciter   = 1u << 4,
         kStageParallel  = 1u << 5,
+        kStageTape      = 1u << 6,
     };
 };

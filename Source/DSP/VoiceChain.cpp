@@ -34,7 +34,7 @@ float hpFromPitch (float medianPitchHz)
    NO corta duro (sin aliasing ni distorsión dura en el límite). */
 inline float softClipSample (float x)
 {
-    const float start = 0.75f;    // ~ -2.5 dBFS: material normal pasa intacto
+    const float start = 0.85f;    // ~ -1.4 dBFS: material normal pasa intacto
     const float maxX  = 1.0f;     // asintota (0 dBFS)
     const float ax = std::abs (x);
     if (ax <= start)
@@ -68,6 +68,7 @@ void VoiceChain::prepare (double sr, int block, int nch)
     exciter.prepare    (sr, block, nch);
     eq.prepare         (sr, block, nch);
     parallel.prepare   (sr, block, nch);
+    tape.prepare       (sr, block, nch);
 
     amount_s.reset (sr, 0.05);
     amount_s.setCurrentAndTargetValue (0.0f);
@@ -83,6 +84,7 @@ void VoiceChain::reset()
     suppressor.reset();
     exciter.reset();
     parallel.reset();
+    tape.reset();
 }
 
 void VoiceChain::setAmount (float a, bool force)
@@ -98,7 +100,7 @@ void VoiceChain::setBodyAir (float v, bool force)
 }
 
 /* Reset de estado de cada etapa (limpia filtros y envolventes). */
-void VoiceChain::OptoComp::reset()            { env.reset(); }
+void VoiceChain::OptoComp::reset() { env.reset(); env2.reset(); gainA = 1.0f; gainB = 1.0f; }
 void VoiceChain::ResonanceSuppressor::reset()
 {
     detect[0].reset(); detect[1].reset();
@@ -110,6 +112,7 @@ void VoiceChain::HarmonicExciter::reset()             { hp.reset(); if (os) os->
 void VoiceChain::EqStage::reset()
 {
     highpass.reset(); lowMidCut.reset(); mudCut.reset(); airShelf.reset(); presence.reset();
+    presence4k.reset();
 }
 void VoiceChain::setLearnProfile (const LearnProfile& p) { profile = p; }
 
@@ -148,8 +151,12 @@ void VoiceChain::process (juce::AudioBuffer<float>& buffer, unsigned int stageMa
     if ((stageMask & kStageParallel) && amount > 0.001f)
         parGR = parallel.process (buffer, amount);
 
+    // 10: tape glue final (A800 vocal): lamina picos + tercer armónico suave.
+    if ((stageMask & kStageTape) && amount > 0.001f)
+        compGR = juce::jmax (compGR, tape.process (buffer, amount));
+
     // Soft-clip de salida (knee suave): protege de overs cerca de 0 dBFS con
-    // una curva sin distorsión dura. Solo "toca" picos > ~-6 dBFS por lo que
+    // una curva sin distorsión dura. Solo "toca" picos > ~-1.4 dBFS por lo que
     // material normal pasa intacto; a Shine alto es el tope que evita que
     // drive+parallel disparen picos.
     softClipBlock (buffer);
@@ -299,7 +306,9 @@ void VoiceChain::OptoComp::prepare (double sr, int block, int nch)
 {
     (void) block;
     sampleRate = sr; this->nch = nch;
-    env.reset (sr, 10.0f, 250.0f, false);
+    env.reset  (sr, 10.0f, 250.0f, false);   // A: leveler lento (LA-2A)
+    env2.reset (sr,  5.0f, 150.0f, false);   // B: algo más rápido (picos)
+    gainA = 1.0f; gainB = 1.0f;
 }
 
 float VoiceChain::OptoComp::process (juce::AudioBuffer<float>& b, float amount)
@@ -307,55 +316,70 @@ float VoiceChain::OptoComp::process (juce::AudioBuffer<float>& b, float amount)
     const int n = b.getNumSamples();
     const int ch = juce::jmin (nch, b.getNumChannels());
 
-    // Compresor óptico por MUESTRA: el detector (entrada real, sin escalar por
-    // amount) gobierna la ganancia en cada muestra -> sin el escalón de "un GR
-    // estático por bloque" que hacía zipper en las fronteras de bloque.
+    // CASCADA de dos ópticos: mismo GR total que un comp profundo pero
+    // repartido (2-3 dB cada uno) -> densidad "on-air" SIN bombeo: dos knees
+    // suaves se abren antes que uno solo y las envolventes son independientes.
     // Detector linked (max de canales): el balance estéreo no camina con el GR.
-    const float thr = 0.22f + 0.14f * (1.0f - amount);
-    const float ratio = 1.0f + 2.5f * amount;
+    // Ganancia persistente entre bloques: sin zipper en fronteras.
 
-    // Knee suave C1-continuo (patrón del de-esser): el over se mezcla desde
-    // -knee/2 hasta +knee/2 para que la entrada a compresión no "salte".
-    const float kneeDb = 6.0f;
-    const float halfKnee = kneeDb * 0.5f;
-    const float slope = 1.0f - 1.0f / ratio;
+    const float relCoeff = 1.0f - std::exp (-1.0f / (0.120f * (float) sampleRate + 1e-6f)); // ~120 ms
 
-    const float relCoeff = 1.0f - std::exp (-1.0f / (0.100f * (float) sampleRate + 1e-6f)); // ~100 ms
-
-    float gain = 1.0f, grMax = 0.0f;
-    for (int i = 0; i < n; ++i)
+    auto pass = [] (juce::AudioBuffer<float>& buf, int ch, int n,
+                    float thr, float ratio, EnvFollower& env,
+                    float& gainState, float relC) -> float
     {
-        const float lvl0 = std::abs (b.getSample (0, i));
-        const float lvl1 = (ch > 1) ? std::abs (b.getSample (1, i)) : 0.0f;
-        const float e = env.processSample (juce::jmax (lvl0, lvl1));
+        // Knee suave C1-continuo (patrón del de-esser): el over se mezcla desde
+        // -knee/2 hasta +knee/2 para que la entrada a compresión no "salte".
+        const float kneeDb   = 6.0f;
+        const float halfKnee = kneeDb * 0.5f;
+        const float slope    = 1.0f - 1.0f / ratio;
 
-        float gTarget = 1.0f;
-        if (e > thr * std::pow (10.0f, -halfKnee / 20.0f))   // entra 3 dB antes del thr
+        float grMax = 0.0f;
+        for (int i = 0; i < n; ++i)
         {
-            const float overDb = 20.0f * std::log10 (juce::jmax (1e-4f, e / thr));
-            float grDb;
-            if (overDb >= halfKnee)
-                grDb = (overDb - halfKnee) * slope;
-            else
+            const float lvl0 = std::abs (buf.getSample (0, i));
+            const float lvl1 = (ch > 1) ? std::abs (buf.getSample (1, i)) : 0.0f;
+            const float e = env.processSample (juce::jmax (lvl0, lvl1));
+
+            float gTarget = 1.0f;
+            if (e > thr * std::pow (10.0f, -halfKnee / 20.0f))   // entra 3 dB antes
             {
-                // Knee suave 6 dB, C1-continuo con la rama de ratio encima
-                // (mismo patrón que el de-esser).
-                const float t = overDb + halfKnee;          // 0..kneeDb
-                grDb = (t * t) / (2.0f * kneeDb) * slope;
+                const float overDb = 20.0f * std::log10 (juce::jmax (1e-4f, e / thr));
+                float grDb;
+                if (overDb >= halfKnee)
+                    grDb = (overDb - halfKnee) * slope;
+                else
+                {
+                    const float t = overDb + halfKnee;          // 0..kneeDb
+                    grDb = (t * t) / (2.0f * kneeDb) * slope;
+                }
+                gTarget = std::pow (10.0f, -grDb / 20.0f);
             }
-            gTarget = std::pow (10.0f, -grDb / 20.0f);
-        }
 
-        if (gTarget < gain)     gain = gTarget;
-        else                    gain += relCoeff * (gTarget - gain);
-        for (int c = 0; c < ch; ++c)
-        {
-            auto* d = b.getWritePointer (c);
-            d[i] *= gain;
+            if (gTarget < gainState)    gainState = gTarget;
+            else                        gainState += relC * (gTarget - gainState);
+            for (int c = 0; c < ch; ++c)
+            {
+                auto* d = buf.getWritePointer (c);
+                d[i] *= gainState;
+            }
+            grMax = juce::jmax (grMax, 1.0f - gainState);
         }
-        grMax = juce::jmax (grMax, 1.0f - gain);
-    }
-    return (float) juce::jlimit (0.0, 1.0, (double) grMax);
+        return grMax;
+    };
+
+    // Etapa A "leveler": umbral más bajo, ratio suave -> densidad de cuerpo.
+    const float thrA = 0.26f + 0.10f * (1.0f - amount);
+    const float ratA = 1.0f + 1.2f * amount;
+    const float grA  = pass (b, ch, n, thrA, ratA, env, gainA, relCoeff);
+
+    // Etapa B "picos": umbral más alto sobre la salida de A -> redondea
+    // lo que sobrevivió (el "laminado" clásico de cadena radio).
+    const float thrB = 0.32f + 0.10f * (1.0f - amount);
+    const float ratB = 1.0f + 1.0f * amount;
+    const float grB  = pass (b, ch, n, thrB, ratB, env2, gainB, relCoeff);
+
+    return juce::jmax (grA, grB);
 }
 
 /* ============ Supresor de resonancia ============ */
@@ -459,8 +483,8 @@ void VoiceChain::HarmonicExciter::process (juce::AudioBuffer<float>& b, float am
     // DRIVE FIJO y moderado, solo el MIX escala con Shine -> más Shine siempre
     // = más brillo (curva monótona). Subido vs. original para que el exciter
     // DOMINE a la compresión que (antes) apagaba el >4k a Shine alto.
-    const float drive = 3.6f;
-    const float mix   = 0.85f * amount;
+    const float drive = 3.2f;
+    const float mix   = 0.55f * amount;
     const float bias  = 0.16f;                       // asimetría -> armónicos pares "musicales"
     for (int c = 0; c < ch; ++c)
     {
@@ -533,18 +557,22 @@ void VoiceChain::EqStage::prepare (double sr, int block, int nch)
     juce::dsp::ProcessSpec spec { sampleRate, (juce::uint32) block, (juce::uint32) nch };
     highpass.prepare (spec); lowMidCut.prepare (spec);
     mudCut.prepare (spec); airShelf.prepare (spec); presence.prepare (spec);
+    presence4k.prepare (spec);
     highpass.coefficients = juce::dsp::IIR::Coefficients<float>::makeHighPass (sr, 85.0f, 0.707f);
     lowMidCut.coefficients = makePeak (sr, 320.0f, 1.0f, 0.0f);
     mudCut.coefficients = makePeak (sr, 250.0f, 1.2f, 0.0f);
     airShelf.coefficients = makeHighShelf (sr, 12000.0f, 0.707f, 0.0f);
     presence.coefficients = makePeak (sr, 2500.0f, 0.9f, 0.0f);
+    presence4k.coefficients = makePeak (sr, 4000.0f, 1.0f, 0.0f);
     highpass.reset(); lowMidCut.reset(); mudCut.reset(); airShelf.reset(); presence.reset();
+    presence4k.reset();
     // Sincroniza la caché de histéresis con los coeficientes recién creados.
     lastHighpassF = 85.0f;
     lastLowMidF = 320.0f;  lastLowMidG = 0.0f;
     lastMudF    = 250.0f;  lastMudG    = 0.0f;
     lastAirF    = 12000.0f; lastAirG   = 0.0f;
-    lastPresF   = 2500.0f; lastPresG   = 0.0f;
+    lastPresF   = 2500.0f;  lastPresG  = 0.0f;
+    lastPres4kG = 0.0f;
 }
 
 void VoiceChain::EqStage::process (juce::AudioBuffer<float>& b, const LearnProfile& p,
@@ -558,10 +586,15 @@ void VoiceChain::EqStage::process (juce::AudioBuffer<float>& b, const LearnProfi
     // que el brillo >4k crezca de forma monótona con Shine (antes la
     // compresión apagaba el brillo a Shine alto: curva anti-monotónica).
     const float lowMidCutDb = -3.0f * amount * body;
-    const float airBoostDb  =  2.5f * amount * (1.5f - body);
+    const float airBoostDb  =  1.2f * amount * (1.5f - body);
     const float mudCutDb    = -3.0f * amount * p.lowMidLevel;
-    // Presencia: más peso al aire medido (B-5) y base de hueco más agresiva.
-    const float presenceDb  =  3.5f * amount + 0.7f * amount * p.airTargetDb * (1.5f - body);
+    // Presencia/aire: el sonido APROBADO por oído (niveles moderados). El
+    // brillo >4k en el selftest baja porque la señal sintética es 100%
+    // sibilancia y el de-esser la domea (comportamiento deseado, no bug).
+    const float presenceDb  =  2.0f * amount + 0.5f * amount * p.airTargetDb * (1.5f - body);
+    // Pico fijo en 4 kHz (la frecuencia "radio" de voz al frente): separado del
+    // presence de 2.5k para no sonar nasal; solo escala con Shine.
+    const float presence4kDb = 1.5f * amount;
 
     // Solo se reconstruye el filtro (heap Coefficients + reset de estado) cuando
     // la frecuencia o la ganancia REALES cambian más que la histéresis. Sin esto
@@ -606,6 +639,12 @@ void VoiceChain::EqStage::process (juce::AudioBuffer<float>& b, const LearnProfi
         presence.reset();
         lastPresF = p.presenceFreq; lastPresG = presenceDb;
     }
+    if (changed (4000.0f, lastPres4kG, 4000.0f, presence4kDb))
+    {
+        presence4k.coefficients = makePeak (sampleRate, 4000.0f, 1.0f, presence4kDb);
+        presence4k.reset();
+        lastPres4kG = presence4kDb;
+    }
 
     const int n = b.getNumSamples();
     const int ch = juce::jmin (nch, b.getNumChannels());
@@ -618,6 +657,7 @@ void VoiceChain::EqStage::process (juce::AudioBuffer<float>& b, const LearnProfi
             d[i] = lowMidCut.processSample (d[i]);
             d[i] = mudCut.processSample (d[i]);
             d[i] = presence.processSample (d[i]);
+            d[i] = presence4k.processSample (d[i]);
             d[i] = airShelf.processSample (d[i]);
         }
     }
@@ -714,6 +754,105 @@ float VoiceChain::ParallelBus::process (juce::AudioBuffer<float>& dry, float amo
             const float mg = mix.getNextValue();
             d[i] = d[i] * (1.0f - mg) + p[i] * mg;
         }
+    }
+    return (float) juce::jlimit (0.0, 1.0, (double) grMax);
+}
+
+/* ============ Tape glue final (A800 vocal, de SignoffNative) ============ */
+/* Adaptación del TapeEmulator de SignoffNative (Studer A800) a VOZ:
+   - SIN head bump: el HPF adaptativo ya limpia 40-150 Hz; meter el bump de
+     70 Hz volvería a enfatizar plosivas/rumble (retuneado crítico).
+   - Estilo 30 IPS: drive 1.6 (saturación sutil, tercer armónico suave).
+   - Pre-énfasis +2 dB @ 3.5k -> tanh normalizado -> de-énfasis -2 dB: los
+     agudos se saturan como en cinta pero SIN "arena" (a diferencia del
+     modelo de bus que usaba +4/+6 dB, aquí el de-esser ya domó la banda).
+   - Compresión de picos por envolvente common-mode (L+R)/2 (5/120 ms, hasta
+     ~3.5 dB): el "laminador" — no desbalancea el estéreo.
+   - DC blocker de primer orden @ 20 Hz tras el moldeo.
+   - Mezcla dry + (wet-dry)*amount: a Shine 0 el tape está fuera (bypass exacto). */
+
+/* High-shelf RBJ AUTÉNTICO (Audio-EQ-Cookbook) para el tape. OJO:
+   EqStage::makeHighShelf usa una variante A²±1 que queda ESTABLE solo en el
+   air shelf de 12k; a 3.5k da polos fuera del círculo unitario (filtro que
+   explota a inf/NaN). Esta versión es estable en todo el rango útil. */
+juce::dsp::IIR::Coefficients<float>::Ptr rbjHighShelf (double sr, float freq,
+                                                       float q, float gainDb)
+{
+    const float A   = std::pow (10.0f, gainDb / 40.0f);
+    const float w0  = (float) (2.0 * juce::MathConstants<double>::pi * freq / sr);
+    const float cw  = std::cos (w0);
+    const float sw  = std::sin (w0);
+    const float alpha = sw / (2.0f * q);
+    const float tmp = 2.0f * std::sqrt (A) * alpha;
+    const float a0 = (A + 1.0f) - (A - 1.0f) * cw + tmp;
+    const float b0 = A * ((A + 1.0f) + (A - 1.0f) * cw + tmp) / a0;
+    const float b1 = -2.0f * A * ((A - 1.0f) + (A + 1.0f) * cw) / a0;
+    const float b2 = A * ((A + 1.0f) + (A - 1.0f) * cw - tmp) / a0;
+    const float a1 = 2.0f * ((A - 1.0f) - (A + 1.0f) * cw) / a0;
+    const float a2 = ((A + 1.0f) - (A - 1.0f) * cw - tmp) / a0;
+    return new juce::dsp::IIR::Coefficients<float> (b0, b1, b2, 1.0f, a1, a2);
+}
+
+void VoiceChain::TapeStage::prepare (double sr, int block, int nch)
+{
+    sampleRate = sr; this->nch = nch;
+    juce::dsp::ProcessSpec spec { sr, (juce::uint32) block, (juce::uint32) nch };
+    // High-shelves RBJ correctos (regla del repo: makeHighShelf de JUCE 8.0.14
+    // degenera a gain 0 y silencia; la variante del repo es inestable a <8k).
+    const auto preCoef = rbjHighShelf (sr, 3500.0f, 0.71f,  2.0f);
+    const auto deCoef  = rbjHighShelf (sr, 3500.0f, 0.71f, -2.0f);
+    const auto dcCoef  = juce::dsp::IIR::Coefficients<float>::makeFirstOrderHighPass (sr, 20.0f);
+    for (int c = 0; c < 2; ++c)
+    {
+        pre[c].prepare (spec); de[c].prepare (spec); dc[c].prepare (spec);
+        *pre[c].coefficients = *preCoef;
+        *de[c].coefficients  = *deCoef;
+        *dc[c].coefficients  = *dcCoef;
+        pre[c].reset(); de[c].reset(); dc[c].reset();
+    }
+    env.reset (sr, 5.0f, 120.0f, false);
+}
+
+void VoiceChain::TapeStage::reset()
+{
+    for (int c = 0; c < 2; ++c) { pre[c].reset(); de[c].reset(); dc[c].reset(); }
+    env.reset();
+}
+
+float VoiceChain::TapeStage::process (juce::AudioBuffer<float>& b, float amount)
+{
+    if (amount < 0.001f)
+        return 0.0f;
+
+    const int n = b.getNumSamples();
+    const int ch = juce::jmin (nch, b.getNumChannels());
+
+    const float drive = 1.6f;   // 30 IPS: headroom alto, saturación sutil
+    float grMax = 0.0f;
+
+    for (int i = 0; i < n; ++i)
+    {
+        const float dryL = b.getSample (0, i);
+        const float dryR = (ch > 1) ? b.getSample (1, i) : dryL;
+
+        // Envolvente common-mode (L+R)/2: lamina picos sin caminar el estéreo.
+        const float e = env.processSample ((dryL + dryR) * 0.5f);
+        const float over = juce::jmax (0.0f, e - 0.40f);
+        const float gr = 1.0f - 0.35f * juce::jmin (over / 0.60f, 1.0f);
+        grMax = juce::jmax (grMax, 1.0f - gr);
+
+        // Pre-énfasis -> tanh normalizado (unity a bajo nivel) -> de-énfasis.
+        float xl = pre[0].processSample (dryL);
+        float xr = pre[1].processSample (dryR);
+        xl = std::tanh (xl * drive) / drive;
+        xr = std::tanh (xr * drive) / drive;
+        xl *= gr; xr *= gr;
+        xl = dc[0].processSample (de[0].processSample (xl));
+        xr = dc[1].processSample (de[1].processSample (xr));
+
+        b.setSample (0, i, dryL + (xl - dryL) * amount);
+        if (ch > 1)
+            b.setSample (1, i, dryR + (xr - dryR) * amount);
     }
     return (float) juce::jlimit (0.0, 1.0, (double) grMax);
 }

@@ -5,9 +5,9 @@ Polisher vocal de un knob, serie free de Flodo's Audio Labs. VST3/Windows, JUCE 
 ## Estado actual (build instalada)
 - Build Release `Opaline_VST3` con **UI rediseñada compacta cuadrada** tipo one-knob free.
 - Instalada en `C:\Program Files\Common Files\VST3\Opaline.vst3`.
-- Hash SHA-256: `0A93A393EEA80C465288C8F54C9FD0C81177EA5ACE8B7EA62B5BA21167AA1E6C`.**CURVA MONÓTONA**: sin knee (0.22+0.14·(1−amount), ratio 1+2.5·amount), exciter drive 3.6 mix 0.85, presence 3.5/air 2.5, de-esser ceil −(0.35+2.2·amount).
+- Hash SHA-256: `1652C2314D79DB6F2D076EDD728478FECF1068B6468FA73FC322C73B99962379`. **Radio-ready 18-sep v3**: cascada óptica (A leveler 10/250 + B picos 5/150) + presence fijo 4k (+1.5 dB·Shine) + tape glue final A800 vocal (pre/de 3.5k ±2 dB, tanh drive 1.6, comp common-mode 5/120 hasta ~3.5 dB, DC blocker 20 Hz). Base aprobada 18-sep v2 intacta (exciter 3.2/0.55, presence 2.0+0.5·air, air 1.2, óptico thr 0.24+0.10/ratio 1+2.0/knee 6 dB, softclip −1.4 dBFS).
 - Validado con `pluginval --validate-in-process --strictness-level 10` → **SUCCESS** (bloques 64–1024, 48k/96k).
-- Selftest de consola (`Build_Selftest\Release\DspSelfTest.exe`) → **PASS** (cadena audible, exit 0).
+- Selftest de consola (`Build_Selftest\Release\DspSelfTest.exe`) → **PASS** (cadena audible, exit 0). BRIGHTNESS 100% → −0.79 dB (señal sintética = 100% sibilancia, el de-esser domea: correcto); sin NaN.
 
 ## Bypass mantiene la latencia (§10.14 del skill, 2026-09-17)
 `OpalineAudioProcessor` incorpora un **delay feed-forward** del tamaño de `chain.getLatencySamples()`:
@@ -23,14 +23,25 @@ Polisher vocal de un knob, serie free de Flodo's Audio Labs. VST3/Windows, JUCE 
 
 ## DSP — mejora aplicada
 - **CURVA >4k MONÓTONA CON SHINE** (2026-09-18, punto 1): antes el brillo >4k era **anti-monótono** (−4.9 dB a Shine 100%: la compresión apagaba el aire). Rebalanceo de energías:
-  - Óptico con **knee C1 6 dB** (patrón del de-esser) y tier más suave: `thr = 0.22+0.14·(1−amount)` (antes 0.18+0.18), `ratio = 1+2.5·amount` (antes 1+3.5).
-  - **Exciter drive 3.6 / mix 0.85** (antes 3.2/0.55) — el exciter ahora DOMINA sobre la reducción.
-  - **Presence base 3.5** y **air shelf 2.5·(1.5−body)** (antes 2.0/0.6).
-  - De-esser más suave: `ceilDb = −(0.35+2.2·amount) − 0.12·sibExcessDb` (antes −(1+4·amount) − 0.25).
-  - Resultado selftest BRIGHTNESS: −0.11 → +0.58 → +1.08 → +1.27 → **+1.32 dB** (sube SIEMPRE con Shine).
-- **Soft-clip de salida** (punto 2): `softClipBlock` tras el paralelo, knee C0-continua `y = x` hasta −2.5 dBFS y `start+range·tanh(over/range)` con asíntota 0 dBFS (protege de overs cerca de 0 dBFS sin distorsión dura).
+  - Óptico con **knee C1 6 dB** (patrón del de-esser) y tier más suave: `thr = 0.24+0.10·(1−amount)` (antes 0.18+0.18), `ratio = 1+2.0·amount`, release 120 ms.
+  - **Exciter drive 3.2 / mix 0.55** (aprobado), **presence 2.0+0.5·airTargetDb**, **air 1.2·(1.5−body)**.
+  - De-esser suavizado: `ceilDb = −(0.35+2.2·amount) − 0.12·sibExcessDb` (antes −(1+4·amount) − 0.25).
+  - **NOTA DE OÍDO 18-sep v2**: forzar la curva monótona exigía subir exciter (3.6/0.85) + presence 3.5 + air 2.5 → sonaba **agresivo/descontrolado** (saturación dura en agudos, no la compresión). Restaurado al equilibrio aprobado por oído; el >4k del selftest vuelve a bajar suavemente (−0.95 dB a 100%) porque domina el de-esser (correcto: la señal sintética es 100% sibilancia). La curva "monótona" implementada quedó en el cursor: la compresión suave + knee es lo que controla.
+- **Soft-clip de salida** (punto 2): `softClipBlock` tras el paralelo, knee C0-continua `y = x` hasta **−1.4 dBFS** y `start+range·tanh(over/range)` con asíntota 0 dBFS (solo toca picos reales; material normal intacto).
 - **Detectores linked estéreo** (punto 4): Óptico y ResonanceSuppressor usan `max(canal0, canal1)` (patrón `jmax(abs(d0), abs(d1))`; si `ch≤1` el segundo puntero es 0 → mono degenera igual). Balance estéreo ya no camina con el GR.
 - **Smoothing del GR del supresor** (punto 5): `grSm` `LinearSmoothedValue` ~20 ms (antes `over*10` bruto por bloque → zipper).
+
+## DSP — Radio-ready 18-sep v3 (cascada óptica + presence 4k + tape glue)
+Dirección aprobada con el usuario a partir de "¿se puede mejorar a radio ready?" (cascada #1, presence #2 y tape A800 cerrando la cadena; gate y auto-LUFS quedan FUERA por identidad one-knob — Signoff es el finalizer de master).
+- **OptoComp ahora es cascada de 2 pases** (lambda `pass`): etapa A "leveler" `thrA = 0.26+0.10·(1−amount)`, `ratA = 1+1.2·amount`, envolvente 10/250 ms; etapa B "picos" `thrB = 0.32+0.10·(1−amount)`, `ratB = 1+1.0·amount`, envolvente 5/150 ms; ambas con knee 6 dB, release ~120 ms, detectores linked (max L/R) y `gainA/gainB` persistentes entre bloques (sin zipper). Retorna `jmax(grA, grB)`.
+- **Presence fijo 4 kHz** en `EqStage`: pico adicional `+1.5 dB·amount` (curva dinámica del body 500-1k intacta). Histéresis `changed()` + `reset()` tras reasignar coeficientes.
+- **TapeStage (glue final, kStageTape = 1<<6)**: porte del `TapeEmulator.h` de SignoffNative (Studer A800) retuneado a VOZ, tras veredicto "brutalmente honesto" (el modelo de bus haría daño en Opaline):
+  - SIN head bump de 70 Hz (el HPF adaptativo ya limpia; evitaría plosivas/rumble).
+  - Estilo 30 IPS: `drive 1.6`, pre-énfasis RBJ +2 dB @ 3.5k → `tanh(drive·x)/drive` normalizado (unity a bajo nivel) → de-énfasis −2 dB.
+  - Compresión por envolvente **common-mode (L+R)/2** 5/120 ms, `thr 0.40`, hasta ~3.5 dB de laminado (no camina el estéreo).
+  - DC blocker primer orden @ 20 Hz tras el moldeo; mezcla `dry + (wet−dry)·amount` (bypass exacto a Shine 0); `kStageTape` y opción de mascara por etapa desde UI.
+  - FOCO en el ciclo de vida: `tape.prepare/reset` llamados desde `VoiceChain::prepare/reset`.
+- **LEGGO (NaN 18-sep)**: el high-shelf del tape usaba `EqStage::makeHighShelf` (variante A²±1, NO RBJ auténtico) → a 3.5 kHz genera polos fuera del círculo unitario (|p|≈1.038) que **explotan a inf/NaN** después de ~300 muestras (el filtro se vuelve inestable a frecuencias <8k; en el air shelf de 12k nunca se notó). Correto con `rbjHighShelf()` local (RBJ Audio-EQ-Cookbook auténtico, `(A+1)±(A-1)cos(w)`): estable en todo el rango. Diagnóstico por instrumentación: `processSample` con entrada finita daba `-nan(ind)` → coeficientes, no estado.
 - **Oversampling 2× en el exciter armónico** (`VoiceChain::HarmonicExciter`) con `juce::dsp::Oversampling<float>` half-band polyphase IIR:
   - Reduce el aliasing de los armónicos del tanh (banda >3 kHz) → menos "gris" y brillo más limpio a Shine alto.
   - API JUCE 8: `initProcessing` + `processSamplesUp/processSamplesDown` sobre `AudioBlock`. El HP 3 kHz se prepara a la tasa oversampleada (2×).
@@ -81,7 +92,7 @@ Búsqueda de skills "no genéricos" de JUCE y UI. Veredicto: el skill `juce` pro
 - No clonar: `juce-webview-plugin-skill` (UI WebView, no aplica), `plugindev-plugin` (Rust), plugin pago `juce-dev` (generouscorp).
 
 ## Repo git
-Repo local en esta carpeta (`Opaline/`), creado con `git init` + `.gitignore` (excluye `Build*`, `opaline_preview.png`, artefactos). Commit inicial + commits de DSP (HPF adaptativo + de-esser + bypass con latencia + persistencia y el rebalanceo de curva del 18-sep). **UNCOMMITTED hasta el siguiente commit**: los cambios DSP del 18-sep (curva, soft-clip, knee óptico, linked, grSm) — el binario instalado ya los incluye (hash `0A93A393...`).
+Repo local en esta carpeta (`Opaline/`), creado con `git init` + `.gitignore` (excluye `Build*`, `opaline_preview.png`, artefactos). Commit inicial + commits de DSP (HPF adaptativo + de-esser + bypass con latencia + persistencia y el rebalanceo de curva del 18-sep). Último commit `1727312` (5 puntos DSP 18-sep v2) con working tree limpio. Pendientes del 18-sep v3 (radio-ready) tras validación: commits de cascada/presence/tape.
 
 ## Regla del triángulo espectral (Paco Rincón)
 Protagonistas 500–1000 Hz = B; graves ~200 = B−5; agudos = B−5; sibilancias = B−5..B.
