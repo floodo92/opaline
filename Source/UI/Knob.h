@@ -17,7 +17,8 @@ namespace floodo::brand
    Interacción: drag vertical (Shift = fino), wheel, dbl-click reset,
    detents con `steps`, marcador de default y zero bipolar.
    ============================================================ */
-class Knob : public juce::Component
+class Knob : public juce::Component,
+             public juce::SettableTooltipClient
 {
 public:
     /* Acabado de la cara del dial:
@@ -56,6 +57,17 @@ public:
        p.ej. el label/valor tipografiado del layout Precision. */
     std::function<void()> onValueChanged;
 
+    /* Gesture de automation: onGestureBegin/onGestureEnd se llaman en el
+       drag (mouseDown/mouseUp). KnobAttachment los mapea a beginGesture /
+       endGesture del ParameterAttachment — UN solo gesto de automation por
+       arrastre (el patrón pro), en vez de uno por delta. */
+    std::function<void()> onGestureBegin;
+    std::function<void()> onGestureEnd;
+
+    /* El Attachment decide entre setValueAsPartOfGesture (durante el drag)
+       y setValueAsCompleteGesture (wheel, teclado, doble-click). */
+    bool isDragging() const noexcept { return dragging; }
+
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
@@ -66,6 +78,12 @@ public:
     void mouseDoubleClick (const juce::MouseEvent&) override;
     bool keyPressed (const juce::KeyPress&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+
+    /* Foco de teclado: el knob es un slider accesible (Narrator/VoiceOver lee
+       el valor y lo ajusta); flechas/Home/End cambian el valor. */
+    void focusGained (FocusChangeType) override;
+    void focusLost (FocusChangeType) override;
+    std::unique_ptr<juce::AccessibilityHandler> createAccessibilityHandler() override;
 
     static constexpr int readoutH = 14;   /* .knob-val 11.5px line-height 1 */
     static constexpr int labelH   = 12;   /* .knob-lbl 10px line-height 1 */
@@ -102,6 +120,12 @@ private:
     double clampNorm (double n) const;
     double snapIfNeeded (double raw) const;
     juce::String displayText() const;
+
+    /* Clic derecho: menú contextual del parámetro (valor actual + reset). */
+    void showContextMenu();
+
+    /* Handler de accesibilidad (role slider + interface de valor). */
+    class KnobAccessibilityHandler;
 
     void paintBrandDial (juce::Graphics&, float cx, float cy, double valueAngle, double norm);
     void paintPrecisionDial (juce::Graphics&, float cx, float cy, double valueAngle, double norm);

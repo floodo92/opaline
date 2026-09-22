@@ -1,5 +1,6 @@
 #include "Knob.h"
 #include "BrandFonts.h"
+#include "BrandMenu.h"   /* BrandMenuLNF - menú contextual del parámetro */
 
 namespace floodo::brand
 {
@@ -51,6 +52,7 @@ Knob::Knob (float knobSize)
 {
     setMouseCursor (juce::MouseCursor::UpDownResizeCursor); /* ns-resize */
     setOpaque (false);
+    setWantsKeyboardFocus (true);   /* slider accesible: flechas/Home/End + Narrator */
 }
 
 void Knob::setValue (double v, bool notify)
@@ -59,6 +61,14 @@ void Knob::setValue (double v, bool notify)
     v = juce::jlimit (min, max, v);
     if (juce::exactlyEqual (v, value)) return;
     value = v;
+
+    /* Aviso a los clientes de accesibilidad cuando el valor cambia por
+       fuera del drag (recall de sesión, Home/End...). Durante el arrastre
+       el lector no necesita un anuncio por delta. */
+    if (! dragging)
+        if (auto* handler = getAccessibilityHandler())
+            handler->notifyAccessibilityEvent (juce::AccessibilityEvent::valueChanged);
+
     repaint();
     if (onValueChanged) onValueChanged();
     if (notify && onChange) onChange (value);
@@ -112,6 +122,15 @@ void Knob::paint (juce::Graphics& g)
         paintBrandDial (g, cx, cy, valueAngle, norm);
 
     paintText (g, cw, ch);
+
+    /* Focus ring de teclado: ópalo 1px alrededor del canvas. Solo cuando el
+       knob TIENE el foco (los snapshots y el uso con mouse no lo pintan). */
+    if (hasKeyboardFocus (true))
+    {
+        const float r = knobDiameter() / 2.0f;
+        g.setColour (accentAlpha (0.9f));
+        g.drawEllipse (cx - r, cy - r, knobDiameter(), knobDiameter(), 1.0f);
+    }
 }
 
 /*============================================================================*/
@@ -598,9 +617,17 @@ void Knob::paintPrecisionDial (juce::Graphics& g, float cx, float cy,
 
 void Knob::mouseDown (const juce::MouseEvent& e)
 {
+    /* Clic derecho = menú contextual del parámetro (no arrastra). */
+    if (e.mods.isPopupMenu())
+    {
+        showContextMenu();
+        return;
+    }
+
     dragging = true;
     dragStartY = e.position.y;
     dragStartVal = value;
+    if (onGestureBegin) onGestureBegin();   /* automation: begin del gesto */
     repaint();
 }
 
@@ -615,6 +642,7 @@ void Knob::mouseDrag (const juce::MouseEvent& e)
 
 void Knob::mouseUp (const juce::MouseEvent&)
 {
+    if (dragging && onGestureEnd) onGestureEnd();   /* automation: end del gesto */
     dragging = false;
     repaint();
 }
@@ -627,10 +655,42 @@ void Knob::mouseDoubleClick (const juce::MouseEvent&)
     setValue (defaultValue > min - 1e300 ? defaultValue : (min + max) / 2.0);
 }
 
-bool Knob::keyPressed (const juce::KeyPress&)
+bool Knob::keyPressed (const juce::KeyPress& key)
 {
-    return false;
+    const auto keyCode = key.getKeyCode();
+    const bool arrows = keyCode == juce::KeyPress::upKey
+                     || keyCode == juce::KeyPress::rightKey
+                     || keyCode == juce::KeyPress::downKey
+                     || keyCode == juce::KeyPress::leftKey;
+    const bool jump   = keyCode == juce::KeyPress::homeKey
+                     || keyCode == juce::KeyPress::endKey;
+    if (! arrows && ! jump) return false;   /* B/M del editor y navegación siguen fluyendo */
+
+    if (jump)
+    {
+        setValue (keyCode == juce::KeyPress::homeKey ? min : max);
+        return true;
+    }
+
+    if (steps > 1)
+    {
+        setValue (value + (keyCode == juce::KeyPress::downKey
+                        || keyCode == juce::KeyPress::leftKey
+                            ? -1 : 1) * (max - min) / (steps - 1));
+    }
+    else
+    {
+        /* 1% del rango por pulso; Shift = fino (mismo contrato que el wheel). */
+        const double denom = key.getModifiers().isShiftDown() ? 1000.0 : 100.0;
+        setValue (value + (keyCode == juce::KeyPress::downKey
+                        || keyCode == juce::KeyPress::leftKey
+                            ? -1 : 1) * (max - min) / denom);
+    }
+    return true;
 }
+
+void Knob::focusGained (FocusChangeType) { repaint(); }
+void Knob::focusLost (FocusChangeType)   { repaint(); }
 
 void Knob::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
 {
@@ -649,6 +709,95 @@ void Knob::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDeta
 
 /*============================================================================*/
 
+/* Menú contextual del parámetro: nombre + valor actual (solo lectura) y reset.
+   Viste de marca con el BrandMenuLNF de los popups de la familia. */
+void Knob::showContextMenu()
+{
+    static BrandMenuLNF menuLNF;
+
+    const juce::String paramName = labelText.isNotEmpty()
+        ? labelText : juce::String ("Value");
+
+    juce::PopupMenu menu;
+    menu.setLookAndFeel (&menuLNF);
+    menu.addItem (1, paramName + "  " + displayText(), false);
+    menu.addSeparator();
+
+    const bool hasDefault = defaultValue >= min - 1e-9 && defaultValue <= max + 1e-9;
+    menu.addItem (2, "Reset to Default", hasDefault);
+
+    const double resetTo = hasDefault ? defaultValue : (min + max) / 2.0;
+    juce::Component::SafePointer<Knob> safe (this);
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
+                        [safe, resetTo] (int result)
+    {
+        if (safe != nullptr && result == 2)
+            safe->setValue (resetTo);
+    });
+}
+
+/*============================================================================*/
+
+/* Handler de accesibilidad del knob: role slider + interface de valor con
+   rango y paso — Narrator/VoiceOver pueden leer y ajustar EL mismo camino que
+   el mouse (setValue → onChange → gesture completo). El título es el label
+   visible del knob y el help el tooltip de catálogo. */
+class Knob::KnobAccessibilityHandler  : public juce::AccessibilityHandler
+{
+public:
+    explicit KnobAccessibilityHandler (Knob& knob)
+        : juce::AccessibilityHandler (knob,
+                                      juce::AccessibilityRole::slider,
+                                      juce::AccessibilityActions (),
+                                      juce::AccessibilityHandler::Interfaces (std::make_unique<ValueInterface> (knob)))
+    {
+    }
+
+    juce::String getTitle() const override
+    {
+        const auto& k = static_cast<const Knob&> (getComponent());
+        return k.labelText.isNotEmpty() ? k.labelText : juce::String ("Knob");
+    }
+
+    juce::String getHelp() const override
+    {
+        /* SettableTooltipClient::getTooltip() no es const en este JUCE. */
+        auto& k = const_cast<Knob&> (static_cast<const Knob&> (getComponent()));
+        return k.getTooltip();
+    }
+
+private:
+    struct ValueInterface : public juce::AccessibilityRangedNumericValueInterface
+    {
+        explicit ValueInterface (Knob& k) : knob (k) {}
+
+        bool isReadOnly() const override { return false; }
+
+        double getCurrentValue() const override { return knob.getValue(); }
+
+        void setValue (double newValue) override { knob.setValue (newValue); }
+
+        using Range = juce::AccessibilityValueInterface::AccessibleValueRange;
+
+        Range getRange() const override
+        {
+            const double interval = knob.steps > 1
+                ? (knob.max - knob.min) / (knob.steps - 1)
+                : (knob.max - knob.min) / 100.0;
+            return { Range::MinAndMax { knob.min, knob.max }, interval };
+        }
+
+        Knob& knob;
+    };
+};
+
+std::unique_ptr<juce::AccessibilityHandler> Knob::createAccessibilityHandler()
+{
+    return std::make_unique<KnobAccessibilityHandler> (*this);
+}
+
+/*============================================================================*/
+
 KnobAttachment::KnobAttachment (juce::AudioProcessorValueTreeState& state,
                                 const juce::String& paramID,
                                 Knob& knobToUpdate)
@@ -660,12 +809,19 @@ KnobAttachment::KnobAttachment (juce::AudioProcessorValueTreeState& state,
     attachment = std::make_unique<juce::ParameterAttachment> (*param,
         [this] (float) { updateKnob(); }, nullptr);
 
-    /* OJO: setValueAsCompleteGesture toma el valor DENORMALIZADO (real),
-       no el 0..1 — igual que SliderAttachment por debajo. */
+    /* Automation con gesto: el drag abre UN gesto (begin en mouseDown, end en
+       mouseUp) y cada delta va como setValueAsPartOfGesture dentro de él —
+       el DAW escribe una sola curva, no puntos sueltos. Wheel, teclado y
+       doble-click son pasos discretos → complete gesture. */
     knob.onChange = [this] (double v)
     {
-        attachment->setValueAsCompleteGesture ((float) v);
+        if (knob.isDragging())
+            attachment->setValueAsPartOfGesture ((float) v);
+        else
+            attachment->setValueAsCompleteGesture ((float) v);
     };
+    knob.onGestureBegin = [this] { attachment->beginGesture(); };
+    knob.onGestureEnd   = [this] { attachment->endGesture(); };
 
     attachment->sendInitialUpdate();
 }
@@ -673,6 +829,8 @@ KnobAttachment::KnobAttachment (juce::AudioProcessorValueTreeState& state,
 KnobAttachment::~KnobAttachment()
 {
     knob.onChange = nullptr;
+    knob.onGestureBegin = nullptr;
+    knob.onGestureEnd = nullptr;
 }
 
 void KnobAttachment::updateKnob()

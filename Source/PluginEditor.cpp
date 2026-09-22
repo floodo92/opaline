@@ -28,15 +28,18 @@ OpalineAudioProcessorEditor::Frame::Frame (OpalineAudioProcessorEditor& owner)
     /* SHINE — el control que manda. 0..100. */
     setupKnob (shineKnob, 0.0, 100.0, 0.0);
     shineAtt = std::make_unique<KnobAttachment> (ed.proc.apvts, "shine", shineKnob);
+    shineKnob.setTooltip ("Shine - master amount of the whole polish chain");
 
     /* BODY / AIR — bipolar centro 0 (la marca de cero importa). */
     setupKnob (bodyAirKnob, -100.0, 100.0, 0.0);
     bodyAirKnob.setBipolar (true);
     bodyAirAtt = std::make_unique<KnobAttachment> (ed.proc.apvts, "bodyair", bodyAirKnob);
+    bodyAirKnob.setTooltip ("Body / Air - tilt between low-mid warmth and 12k air");
 
     /* OUTPUT */
     setupKnob (outputKnob, 0.0, 100.0, 70.0);
     outputAtt = std::make_unique<KnobAttachment> (ed.proc.apvts, "output", outputKnob);
+    outputKnob.setTooltip ("Output - final level trim");
 
     /* Meters */
     inMeter.setCompact (true);
@@ -124,7 +127,7 @@ void OpalineAudioProcessorEditor::Frame::paint (juce::Graphics& g)
         g.setColour (statusColour);
         g.fillEllipse (tx - 10.0f, fy + 12.0f, 4.0f, 4.0f);
         g.setColour (Colour (textDim));
-        g.drawText (statusRight, (int) tx, (int) fy + 10, (int) tw, 10,
+        g.drawText (statusRight, (int) tx, (int) fy + 9, (int) tw, 10,
                     juce::Justification::centredLeft, false);
     }
 
@@ -202,7 +205,7 @@ void OpalineAudioProcessorEditor::Frame::resized()
     measureBtn.setBounds (330, 12, 62, 28);
 
     /* Footer izquierda: dato de sesión */
-    measureStatus.setBounds (22, 433, 300, 10);
+    measureStatus.setBounds (22, 432, 300, 10);
 }
 
 /*============================================================================*/
@@ -271,8 +274,7 @@ void OpalineAudioProcessorEditor::updateFooter()
     const juce::String rate = sr > 0.0 ? juce::String (sr / 1000.0, 1) + " kHz"
                                        : juce::String ("--");
 
-    const int nch = juce::jmax (proc.getTotalNumInputChannels(),
-                                proc.getTotalNumOutputChannels());
+    const int nch = proc.getSessionChannels();
     const juce::String chans = nch <= 1 ? juce::String ("MONO")
                              : nch == 2 ? juce::String ("STEREO")
                                         : juce::String (nch) + " CH";

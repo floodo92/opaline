@@ -86,3 +86,69 @@ REGISTER_COMPONENT_SIZED (OpalineFull, []{
 
     return h;
 }, 400, 460);
+
+// Frame completo (one-knob) a la vista: sesión recall con "measured" persistido
+// (setStateInformation) revela el editor real; el gate de primera calibración
+// NO se muestra. Valores de partida del mockup (SHINE 0, BODY/AIR 0, OUTPUT
+// 70) + audio estéreo para footer "48.0 kHz · STEREO" y meters vivos.
+REGISTER_COMPONENT_SIZED (OpalineFrameReady, []{
+    auto h = std::make_unique<OpalineEditorHolder>();
+
+    h->proc = std::make_unique<OpalineAudioProcessor>();
+    juce::ValueTree st ("OPALINE");
+    st.setProperty ("measured", true, nullptr);
+    for (auto& pid : { "shine", "bodyair", "output", "bypass" })
+    {
+        auto* p = h->proc->apvts.getParameter (pid);
+        st.setProperty (pid, p->getValue(), nullptr);
+    }
+    juce::MemoryBlock mb;
+    juce::MemoryOutputStream mo (mb, false);
+    st.writeToStream (mo);
+    h->proc->setStateInformation (mb.getData(), (int) mb.getSize());
+
+    h->editor = std::unique_ptr<OpalineAudioProcessorEditor> (
+        static_cast<OpalineAudioProcessorEditor*> (h->proc->createEditor()));
+    h->addAndMakeVisible (h->editor.get());
+    h->editor->setSize (floodo::brand::canvasW, floodo::brand::canvasH);
+
+    if (auto* p = h->proc->apvts.getParameter ("shine"))
+        p->setValueNotifyingHost (p->convertTo0to1 (0.0f));
+    if (auto* p = h->proc->apvts.getParameter ("bodyair"))
+        p->setValueNotifyingHost (p->convertTo0to1 (0.0f));
+    if (auto* p = h->proc->apvts.getParameter ("output"))
+        p->setValueNotifyingHost (p->convertTo0to1 (70.0f));
+
+    constexpr double sr = 48000.0;
+    constexpr int    bs = 512;
+    h->proc->prepareToPlay (sr, bs);
+
+    {
+        juce::AudioBuffer<float> buf (2, bs);
+        juce::MidiBuffer midi;
+        double phase = 0.0;
+        const double inc = juce::MathConstants<double>::twoPi * 220.0 / sr;
+        for (int blk = 0; blk < 80; ++blk)
+        {
+            for (int i = 0; i < bs; ++i)
+            {
+                const auto s = (float) (0.2 * std::sin (phase));
+                phase += inc;
+                buf.setSample (0, i, s);
+                buf.setSample (1, i, s);
+            }
+            h->proc->processBlock (buf, midi);
+        }
+    }
+
+    {
+        juce::Image warm (juce::Image::ARGB, 400, 460, true);
+        for (int i = 0; i < 60; ++i)
+        {
+            juce::Graphics g (warm);
+            h->paintEntireComponent (g, false);
+        }
+    }
+
+    return h;
+}, 400, 460);

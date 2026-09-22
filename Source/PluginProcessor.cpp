@@ -32,15 +32,31 @@ OpalineAudioProcessor::makeLayout()
 
     layout.add (std::make_unique<juce::AudioParameterFloat> (
         "shine", "Shine",
-        juce::NormalisableRange<float> { 0.0f, 100.0f, 0.1f }, 0.0f));
+        juce::NormalisableRange<float> { 0.0f, 100.0f, 0.1f }, 0.0f,
+        juce::AudioParameterFloatAttributes()
+            .withLabel ("%")
+            .withStringFromValueFunction ([] (float v, int)
+            {
+                return juce::String ((int) std::round (v));
+            })));
 
     layout.add (std::make_unique<juce::AudioParameterFloat> (
         "bodyair", "Body / Air",
-        juce::NormalisableRange<float> { -100.0f, 100.0f, 0.1f }, 0.0f));
+        juce::NormalisableRange<float> { -100.0f, 100.0f, 0.1f }, 0.0f,
+        juce::AudioParameterFloatAttributes()
+            .withStringFromValueFunction ([] (float v, int)
+            {
+                return juce::String (v > 0.0f ? "+" : "") + juce::String ((int) std::round (v));
+            })));
 
     layout.add (std::make_unique<juce::AudioParameterFloat> (
         "output", "Output",
-        juce::NormalisableRange<float> { 0.0f, 100.0f, 0.1f }, 70.0f));
+        juce::NormalisableRange<float> { 0.0f, 100.0f, 0.1f }, 70.0f,
+        juce::AudioParameterFloatAttributes()
+            .withStringFromValueFunction ([] (float v, int)
+            {
+                return juce::String ((int) std::round (v));
+            })));
 
     layout.add (std::make_unique<juce::AudioParameterBool> ("bypass", "Bypass", false));
 
@@ -111,6 +127,10 @@ void OpalineAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                           juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals noDenormals;
+
+    // Verdad del bloque actual (footer "MONO/STEREO/N CH"): el canal real por el
+    // que pasó el audio, no lo que el host declara en el layout de buses.
+    sessionChans.store (buffer.getNumChannels(), std::memory_order_relaxed);
 
     const bool bypassed = apvts.getRawParameterValue ("bypass")->load() > 0.5f;
     const float amount  = apvts.getRawParameterValue ("shine")->load() / 100.0f;

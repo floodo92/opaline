@@ -62,6 +62,12 @@ public:
     std::pair<float,float> getInLevels() const noexcept { return { inL.load(), inR.load() }; }
     std::pair<float,float> getOutLevels() const noexcept { return { outL.load(), outR.load() }; }
 
+    /* Canales de la sesión real (ground-truth del último bloque): 0 = no hubo
+       sesión aún (footer "--"), 1=MONO, 2=STEREO, >2 = N canales reales. Es la
+       verdad del bloque, no lo que el host declara en un getTotalNum* que
+       puede quedarse en el layout por defecto. */
+    int getSessionChannels() const noexcept { return sessionChans.load (std::memory_order_relaxed); }
+
     juce::AudioProcessorValueTreeState apvts;
 
 private:
@@ -75,6 +81,7 @@ private:
     std::atomic<bool> hasMeasuredFlag { false };
     std::atomic<bool> confirmRequest { false };
 
+    std::atomic<int> sessionChans { 0 };
     std::atomic<float> grShine { 0.0f };
     std::atomic<float> inL { 0.0f }, inR { 0.0f }, outL { 0.0f }, outR { 0.0f };
 
