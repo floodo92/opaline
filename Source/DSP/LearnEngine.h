@@ -33,6 +33,14 @@ struct LearnProfile
     float sibExcessDb    = 0.0f;
 
     float medianPitchHz  = 220.0f;    // mediana de la fundamental
+
+    // Auto-trim al punto dulce: el Learn mide el RMS de los frames con voz
+    // real y calcula la ganancia que lleva la señal al punto de operación
+    // óptimo de la cadena (comp óptico ~-11 dBFS de thr, exciter tanh).
+    // El procesador la aplica a la ENTRADA del wet path y su INVERSA exacta
+    // a la salida: loudness neta idéntica, solo cambia el nivel interno.
+    float autoTrimDb     = 0.0f;
+
     bool  valid          = false;     // true si se calibró al menos una vez
 };
 
@@ -110,6 +118,8 @@ private:
         double sibFreqAcc = 0.0, resFreqAcc = 0.0; // acumulan centro
         float excTop[32] = {};   // exceso transitorio de sib por ventana (dB)
         int   excCount = 0;
+        double rmsSum = 0.0;     // energía temporal de frames con voz (auto-trim)
+        long long rmsFrames = 0;  // cuántos frames de voz acumuló
     };
     Buckets b;
 

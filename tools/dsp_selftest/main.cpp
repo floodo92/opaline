@@ -16,7 +16,12 @@ static void writeWav (const char* path, const std::vector<float>& mono, int sr)
     uint32_t fmtSize = 16, audioFmt = 1, channels = 1;
     uint32_t byteRate = sr * channels * 2, blockAlign = channels * 2, bits = 16;
     FILE* f = nullptr;
+    // fopen_s es de MSVC y no existe en clang/macOS: se usa fopen ahi.
+#if defined(_MSC_VER)
     fopen_s (&f, path, "wb");
+#else
+    f = fopen (path, "wb");
+#endif
     if (!f) { printf ("cannot open %s\n", path); return; }
     auto wr = [&](const void* p, size_t n) { fwrite (p, 1, n, f); };
     char id[4]; uint32_t u;
@@ -233,31 +238,42 @@ int main()
         pos += block;
     }
 
-    // Stereo check: run the same chain with 2 channels.
+    // Stereo isolation check: the RIGHT channel must stay silent even while
+    // the LEFT channel is driven. Any crosstalk (shared filter state between
+    // channels) leaks energy into the right ear and sounds like artefacts.
     {
         VoiceChain sc; sc.prepare (sr, block, 2);
         sc.setAmount (1.0f, true); sc.setBodyAir (0.0f);
         profile.valid = true; profile.sibilanceLevel = 0.6f; profile.resonanceLevel = 0.6f;
         sc.setLearnProfile (profile);
         juce::AudioBuffer<float> sb ((size_t) 2, block);
-        float maxS = 0.0f;
+        double rmsR = 0.0, nSamp = 0.0;
+        float maxL = 0.0f;
+        bool nanDetected = false;
         size_t sp = 0;
         for (int b = 0; b < totalBlocks; ++b)
         {
-            for (int c = 0; c < 2; ++c)
-            {
-                auto* d = sb.getWritePointer (c);
-                for (int i = 0; i < block; ++i) d[i] = in[sp + i];
-            }
+            sb.clear();
+            auto* dl = sb.getWritePointer (0);
+            for (int i = 0; i < block; ++i) dl[i] = in[sp + i];
             sc.process (sb);
-            for (int c = 0; c < 2; ++c)
+            const float* dr = sb.getReadPointer (1);
+            for (int i = 0; i < block; ++i)
             {
-                const float* d = sb.getReadPointer (c);
-                for (int i = 0; i < block; ++i) maxS = juce::jmax (maxS, std::abs (d[i]));
+                maxL = juce::jmax (maxL, std::abs (dl[i]));
+                if (! std::isfinite (dr[i])) nanDetected = true;
+                rmsR += (double) dr[i] * (double) dr[i];
             }
+            nSamp += (double) block;
             sp += block;
         }
-        printf ("STEREO: maxOut=%.6f  %s\n", maxS, maxS > 0.001f ? "PASS" : "FAIL");
+        rmsR = std::sqrt (rmsR / nSamp);
+        printf ("STEREO-ISOLATION: maxLeft=%.4f rmsRight=%.9f  %s  %s\n",
+                maxL, (float) rmsR,
+                nanDetected ? "NaN/Inf detected" : "no-NaN",
+                (rmsR < 1e-6 && ! nanDetected && maxL > 0.001f) ? "PASS" : "FAIL");
+        if (rmsR >= 1e-6 || maxL <= 0.001f)
+            { printf ("FAIL: shared filter state leaks audio into the right channel\n"); return 3; }
     }
 
     // Brillo objetivo: energía en >4kHz de entrada vs salida (deteccion de "shine").

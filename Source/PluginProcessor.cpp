@@ -46,7 +46,8 @@ OpalineAudioProcessor::makeLayout()
         juce::AudioParameterFloatAttributes()
             .withStringFromValueFunction ([] (float v, int)
             {
-                return juce::String (v > 0.0f ? "+" : "") + juce::String ((int) std::round (v));
+                const int iv = (int) std::round (v);
+                return (iv > 0 ? "+" : juce::String()) + juce::String (iv);
             })));
 
     layout.add (std::make_unique<juce::AudioParameterFloat> (
@@ -72,6 +73,11 @@ void OpalineAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBloc
     learn.prepare (sampleRate, samplesPerBlock);
     gainMatcher.prepare (sampleRate, samplesPerBlock);
 
+    // Auto-trim: el objetivo (dB) sobrevive a los re-prepare del host; la
+    // rampa de 300 ms se re-ancla a la tasa actual desde el valor ya aplicado.
+    trimIn.reset (sampleRate, 0.30);
+    trimIn.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (trimTargetDb));
+
     // Latencia real del oversampling del exciter -> el DAW la compensa.
     bypassLatency = chain.getLatencySamples();
     setLatencySamples (bypassLatency);
@@ -84,6 +90,8 @@ void OpalineAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBloc
         bypassDelay.clear();
     }
     bypassDelayPos = 0;
+
+    opalineSendInstallPingOnce();
 }
 
 void OpalineAudioProcessor::releaseResources()
@@ -128,9 +136,19 @@ void OpalineAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 {
     juce::ScopedNoDenormals noDenormals;
 
-    // Verdad del bloque actual (footer "MONO/STEREO/N CH"): el canal real por el
-    // que pasó el audio, no lo que el host declara en el layout de buses.
+    /* Canal real del bloque (ground-truth para el footer: MONO/STEREO según lo
+       que entrega el host, no según el layout por defecto del plugin). */
     sessionChans.store (buffer.getNumChannels(), std::memory_order_relaxed);
+
+    // Saneado de entrada: un NaN/Inf proveniente de otro plugin no debe envenenar
+    // los filtros ni los medidores (la cadena ya no se recuperaria sola).
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+    {
+        auto* d = buffer.getWritePointer (ch);
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+            if (! std::isfinite (d[i]))
+                d[i] = 0.0f;
+    }
 
     const bool bypassed = apvts.getRawParameterValue ("bypass")->load() > 0.5f;
     const float amount  = apvts.getRawParameterValue ("shine")->load() / 100.0f;
@@ -145,6 +163,12 @@ void OpalineAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         {
             chain.setLearnProfile (prof);
             hasMeasuredFlag = true;
+
+            // Auto-trim al punto dulce: rampa de 300 ms hacia el objetivo;
+            // entrada y salida se compensan inversas (abajo) -> la loudness
+            // no cambia, solo el punto de operación de la cadena.
+            trimTargetDb = prof.autoTrimDb;
+            trimIn.setTargetValue (juce::Decibels::decibelsToGain (trimTargetDb));
         }
         confirmRequest = false;
     }
@@ -212,7 +236,17 @@ void OpalineAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         chain.setAmount (amount);
         chain.setBodyAir (bodyAir);
 
+        // Auto-trim: ganancia por bloque (rampa 300 ms) a la ENTRADA del wet
+        // path y su inversa EXACTA a la salida del chain. Loudness neta = 1:
+        // el usuario no percibe cambio de volumen; solo la cadena empieza a
+        // trabajar en su punto dulce (comp óptico y tanh del exciter).
+        const float gTrim = trimIn.getNextValue();
+        trimIn.skip (juce::jmax (0, n - 1));
+        buffer.applyGain (gTrim);
+
         chain.process (buffer);
+
+        buffer.applyGain (1.0f / gTrim);
 
         // Output trim (dB). Después del gain-match para que el trim sea el
         // control final de volumen del usuario.
@@ -237,8 +271,14 @@ void OpalineAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         for (int i = 0; i < n; ++i)
             peakOut[ch] = juce::jmax (peakOut[ch], std::abs (buffer.getSample (ch, i)));
 
-    inL.store (peakIn[0]); inR.store (peakIn[1]);
-    outL.store (peakOut[0]); outR.store (peakOut[1]);
+    // Pista mono: el buffer trae 1 canal (o el bus principal es mono), así que
+    // el meter R quedaría muerto. Espejamos L→R para que ambos midan igual.
+    const bool mono = buffer.getNumChannels() < 2
+                   || getMainBusNumInputChannels() < 2;
+    inL.store  (peakIn[0]);
+    inR.store  (mono ? peakIn[0] : peakIn[1]);
+    outL.store (peakOut[0]);
+    outR.store (mono ? peakOut[0] : peakOut[1]);
 }
 
 juce::AudioProcessorEditor* OpalineAudioProcessor::createEditor()
@@ -262,6 +302,7 @@ void OpalineAudioProcessor::getStateInformation (juce::MemoryBlock& dest)
         state.setProperty ("airTargetDb",   p.airTargetDb, nullptr);
         state.setProperty ("sibExcessDb",   p.sibExcessDb, nullptr);
         state.setProperty ("medianPitchHz", p.medianPitchHz, nullptr);
+        state.setProperty ("autoTrimDb",   p.autoTrimDb, nullptr);
     }
     juce::MemoryOutputStream mo (dest, false);
     state.writeToStream (mo);
@@ -285,9 +326,14 @@ void OpalineAudioProcessor::setStateInformation (const void* data, int size)
             p.airTargetDb    = (float) tree.getProperty ("airTargetDb", p.airTargetDb);
             p.sibExcessDb    = (float) tree.getProperty ("sibExcessDb", p.sibExcessDb);
             p.medianPitchHz  = (float) tree.getProperty ("medianPitchHz", p.medianPitchHz);
+            p.autoTrimDb     = (float) tree.getProperty ("autoTrimDb", p.autoTrimDb);
             p.valid = true;
             chain.setLearnProfile (p);
             hasMeasuredFlag = true;
+
+            // Reanuda el auto-trim persistido (rampa suave desde el actual).
+            trimTargetDb = p.autoTrimDb;
+            trimIn.setTargetValue (juce::Decibels::decibelsToGain (trimTargetDb));
         }
     }
 }

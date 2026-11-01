@@ -108,11 +108,14 @@ void VoiceChain::ResonanceSuppressor::reset()
     env.reset();
     grSm.setCurrentAndTargetValue (0.0f);
 }
-void VoiceChain::HarmonicExciter::reset()             { hp.reset(); if (os) os->reset(); }
+void VoiceChain::HarmonicExciter::reset() { for (int c = 0; c < 2; ++c) hp[c].reset(); if (os) os->reset(); }
 void VoiceChain::EqStage::reset()
 {
-    highpass.reset(); lowMidCut.reset(); mudCut.reset(); airShelf.reset(); presence.reset();
-    presence4k.reset();
+    for (int c = 0; c < 2; ++c)
+    {
+        highpass[c].reset(); lowMidCut[c].reset(); mudCut[c].reset(); airShelf[c].reset();
+        presence[c].reset(); presence4k[c].reset();
+    }
 }
 void VoiceChain::setLearnProfile (const LearnProfile& p) { profile = p; }
 
@@ -452,20 +455,26 @@ void VoiceChain::HarmonicExciter::prepare (double sr, int block, int nch)
 {
     sampleRate = sr; this->nch = nch;
 
-    /* Oversampling 2× (factor 1 → 2^1). Half-band polyphase IIR: poca latencia
-       y fase comprometida solo cerca de Nyquist, ideal para un tanh. */
+    /* Oversampling 4× (factor 2 → 2^2). Con 2× el 3er armónico de un tono de
+       15 kHz (45 kHz) ya cae por encima del Nyquist del dominio sobremuestreado
+       (44.1 kHz) y pliega a 900 Hz: aliasing audible a Shine alto. Con 4× el
+       Nyquist sube a 88.2 kHz y el tanh queda limpio. Half-band polyphase IIR:
+       poca latencia y fase comprometida solo cerca de Nyquist. */
     os = std::make_unique<juce::dsp::Oversampling<float>> (
-        (size_t) juce::jmax (1, nch), 1,
+        (size_t) juce::jmax (1, nch), osFactor,
         juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,
         false, true);
     os->initProcessing ((size_t) block);
     os->reset();
 
-    const auto osBlock = (juce::uint32) block * 2;
-    juce::dsp::ProcessSpec osSpec { sr * 2.0, osBlock, (juce::uint32) nch };
-    hp.prepare (osSpec);
-    hp.coefficients = juce::dsp::IIR::Coefficients<float>::makeHighPass (sr * 2.0, 3000.0f, 0.707f);
-    hp.reset();
+    const auto osBlock = (juce::uint32) block * (1 << osFactor);
+    juce::dsp::ProcessSpec osSpec { sr * (1 << osFactor), osBlock, (juce::uint32) nch };
+    for (int c = 0; c < 2; ++c)
+    {
+        hp[c].prepare (osSpec);
+        hp[c].coefficients = juce::dsp::IIR::Coefficients<float>::makeHighPass (sr * (1 << osFactor), 3000.0f, 0.707f);
+        hp[c].reset();
+    }
 }
 
 void VoiceChain::HarmonicExciter::process (juce::AudioBuffer<float>& b, float amount)
@@ -485,14 +494,14 @@ void VoiceChain::HarmonicExciter::process (juce::AudioBuffer<float>& b, float am
     // DOMINE a la compresión que (antes) apagaba el >4k a Shine alto.
     const float drive = 3.2f;
     const float mix   = 0.55f * amount;
-    const float bias  = 0.16f;                       // asimetría -> armónicos pares "musicales"
+    const float bias  = 0.10f;                       // asimetría -> armónicos pares; bajo (0.16->0.06->0.10) porque su 2º armónico (12k->24k) caía en la banda de transición del decimador y subía el suelo de aliasing (-55,8 dB a 0.16; -64,3 a 0.06; A/B en curso a 0.10)
     for (int c = 0; c < ch; ++c)
     {
         auto* d = up.getChannelPointer ((size_t) c);
         for (int i = 0; i < n; ++i)
         {
             // Pre-énfasis: solo la banda crujiente > 3k va al sat (rate 2×).
-            float hpOut = hp.processSample (d[i]) * drive;
+            float hpOut = hp[c].processSample (d[i]) * drive;
             // Curva de saturación rica: tanh suave + sesgo asimétrico (pares).
             float sat = std::tanh (hpOut + bias);
             sat -= std::tanh (bias);                  // re-centra el DC exacto (0 en silencio)
@@ -555,17 +564,20 @@ void VoiceChain::EqStage::prepare (double sr, int block, int nch)
 {
     sampleRate = sr; this->nch = nch;
     juce::dsp::ProcessSpec spec { sampleRate, (juce::uint32) block, (juce::uint32) nch };
-    highpass.prepare (spec); lowMidCut.prepare (spec);
-    mudCut.prepare (spec); airShelf.prepare (spec); presence.prepare (spec);
-    presence4k.prepare (spec);
-    highpass.coefficients = juce::dsp::IIR::Coefficients<float>::makeHighPass (sr, 85.0f, 0.707f);
-    lowMidCut.coefficients = makePeak (sr, 320.0f, 1.0f, 0.0f);
-    mudCut.coefficients = makePeak (sr, 250.0f, 1.2f, 0.0f);
-    airShelf.coefficients = makeHighShelf (sr, 12000.0f, 0.707f, 0.0f);
-    presence.coefficients = makePeak (sr, 2500.0f, 0.9f, 0.0f);
-    presence4k.coefficients = makePeak (sr, 4000.0f, 1.0f, 0.0f);
-    highpass.reset(); lowMidCut.reset(); mudCut.reset(); airShelf.reset(); presence.reset();
-    presence4k.reset();
+    for (int c = 0; c < 2; ++c)
+    {
+        highpass[c].prepare (spec); lowMidCut[c].prepare (spec);
+        mudCut[c].prepare (spec); airShelf[c].prepare (spec); presence[c].prepare (spec);
+        presence4k[c].prepare (spec);
+        highpass[c].coefficients = juce::dsp::IIR::Coefficients<float>::makeHighPass (sr, 85.0f, 0.707f);
+        lowMidCut[c].coefficients = makePeak (sr, 320.0f, 1.0f, 0.0f);
+        mudCut[c].coefficients = makePeak (sr, 250.0f, 1.2f, 0.0f);
+        airShelf[c].coefficients = makeHighShelf (sr, 12000.0f, 0.707f, 0.0f);
+        presence[c].coefficients = makePeak (sr, 2500.0f, 0.9f, 0.0f);
+        presence4k[c].coefficients = makePeak (sr, 4000.0f, 1.0f, 0.0f);
+        highpass[c].reset(); lowMidCut[c].reset(); mudCut[c].reset(); airShelf[c].reset(); presence[c].reset();
+        presence4k[c].reset();
+    }
     // Sincroniza la caché de histéresis con los coeficientes recién creados.
     lastHighpassF = 85.0f;
     lastLowMidF = 320.0f;  lastLowMidG = 0.0f;
@@ -586,7 +598,7 @@ void VoiceChain::EqStage::process (juce::AudioBuffer<float>& b, const LearnProfi
     // que el brillo >4k crezca de forma monótona con Shine (antes la
     // compresión apagaba el brillo a Shine alto: curva anti-monotónica).
     const float lowMidCutDb = -3.0f * amount * body;
-    const float airBoostDb  =  1.2f * amount * (1.5f - body);
+    const float airBoostDb  =  2.0f * amount * (1.5f - body);   // swing 1.0..3.0 dB a Shine 100 (antes 1.2: knob inaudible en analyzer); no choca con presence 4k ni exciter
     const float mudCutDb    = -3.0f * amount * p.lowMidLevel;
     // Presencia/aire: el sonido APROBADO por oído (niveles moderados). El
     // brillo >4k en el selftest baja porque la señal sintética es 100%
@@ -609,40 +621,40 @@ void VoiceChain::EqStage::process (juce::AudioBuffer<float>& b, const LearnProfi
         const float hpF = hpFromPitch (p.medianPitchHz);
         if (changed (lastHighpassF, 0.0f, hpF, 0.0f))
         {
-            highpass.coefficients = juce::dsp::IIR::Coefficients<float>::makeHighPass (sampleRate, hpF, 0.707f);
-            highpass.reset();
+            auto coef = juce::dsp::IIR::Coefficients<float>::makeHighPass (sampleRate, hpF, 0.707f);
+            for (int c = 0; c < 2; ++c) { highpass[c].coefficients = coef; highpass[c].reset(); }
             lastHighpassF = hpF;
         }
     }
 
     if (changed (lastLowMidF, lastLowMidG, p.lowMidFreq, lowMidCutDb))
     {
-        lowMidCut.coefficients = makePeak (sampleRate, p.lowMidFreq, 1.0f, lowMidCutDb);
-        lowMidCut.reset();
+        auto coef = makePeak (sampleRate, p.lowMidFreq, 1.0f, lowMidCutDb);
+        for (int c = 0; c < 2; ++c) { lowMidCut[c].coefficients = coef; lowMidCut[c].reset(); }
         lastLowMidF = p.lowMidFreq; lastLowMidG = lowMidCutDb;
     }
     if (changed (lastMudF, lastMudG, 250.0f, mudCutDb))
     {
-        mudCut.coefficients = makePeak (sampleRate, 250.0f, 1.2f, mudCutDb);
-        mudCut.reset();
+        auto coef = makePeak (sampleRate, 250.0f, 1.2f, mudCutDb);
+        for (int c = 0; c < 2; ++c) { mudCut[c].coefficients = coef; mudCut[c].reset(); }
         lastMudF = 250.0f; lastMudG = mudCutDb;
     }
     if (changed (lastAirF, lastAirG, p.airFreq, airBoostDb))
     {
-        airShelf.coefficients = makeHighShelf (sampleRate, p.airFreq, 0.707f, airBoostDb);
-        airShelf.reset();
+        auto coef = makeHighShelf (sampleRate, p.airFreq, 0.707f, airBoostDb);
+        for (int c = 0; c < 2; ++c) { airShelf[c].coefficients = coef; airShelf[c].reset(); }
         lastAirF = p.airFreq; lastAirG = airBoostDb;
     }
     if (changed (lastPresF, lastPresG, p.presenceFreq, presenceDb))
     {
-        presence.coefficients = makePeak (sampleRate, p.presenceFreq, 0.9f, presenceDb);
-        presence.reset();
+        auto coef = makePeak (sampleRate, p.presenceFreq, 0.9f, presenceDb);
+        for (int c = 0; c < 2; ++c) { presence[c].coefficients = coef; presence[c].reset(); }
         lastPresF = p.presenceFreq; lastPresG = presenceDb;
     }
     if (changed (4000.0f, lastPres4kG, 4000.0f, presence4kDb))
     {
-        presence4k.coefficients = makePeak (sampleRate, 4000.0f, 1.0f, presence4kDb);
-        presence4k.reset();
+        auto coef = makePeak (sampleRate, 4000.0f, 1.0f, presence4kDb);
+        for (int c = 0; c < 2; ++c) { presence4k[c].coefficients = coef; presence4k[c].reset(); }
         lastPres4kG = presence4kDb;
     }
 
@@ -653,12 +665,12 @@ void VoiceChain::EqStage::process (juce::AudioBuffer<float>& b, const LearnProfi
         auto* d = b.getWritePointer (c);
         for (int i = 0; i < n; ++i)
         {
-            d[i] = highpass.processSample (d[i]);
-            d[i] = lowMidCut.processSample (d[i]);
-            d[i] = mudCut.processSample (d[i]);
-            d[i] = presence.processSample (d[i]);
-            d[i] = presence4k.processSample (d[i]);
-            d[i] = airShelf.processSample (d[i]);
+            d[i] = highpass[c].processSample (d[i]);
+            d[i] = lowMidCut[c].processSample (d[i]);
+            d[i] = mudCut[c].processSample (d[i]);
+            d[i] = presence[c].processSample (d[i]);
+            d[i] = presence4k[c].processSample (d[i]);
+            d[i] = airShelf[c].processSample (d[i]);
         }
     }
 }
@@ -670,12 +682,15 @@ void VoiceChain::ParallelBus::prepare (double sr, int nblock, int nch)
     sampleRate = sr; this->nch = nch;
     par.setSize (nch, nblock, false, false, false);
     juce::dsp::ProcessSpec spec { sampleRate, (juce::uint32) nblock, (juce::uint32) nch };
-    hpIn.prepare (spec); lpIn.prepare (spec); hpOut.prepare (spec); lpOut.prepare (spec);
-    hpIn.coefficients  = juce::dsp::IIR::Coefficients<float>::makeHighPass (sr, 100.0f, 0.707f);
-    lpIn.coefficients  = juce::dsp::IIR::Coefficients<float>::makeLowPass  (sr, 14000.0f, 0.707f);
-    hpOut.coefficients = juce::dsp::IIR::Coefficients<float>::makeHighPass (sr, 200.0f, 0.707f);
-    lpOut.coefficients = juce::dsp::IIR::Coefficients<float>::makeLowPass  (sr, 10000.0f, 0.707f);
-    hpIn.reset(); lpIn.reset(); hpOut.reset(); lpOut.reset();
+    for (int c = 0; c < 2; ++c)
+    {
+        hpIn[c].prepare (spec); lpIn[c].prepare (spec); hpOut[c].prepare (spec); lpOut[c].prepare (spec);
+        hpIn[c].coefficients  = juce::dsp::IIR::Coefficients<float>::makeHighPass (sr, 100.0f, 0.707f);
+        lpIn[c].coefficients  = juce::dsp::IIR::Coefficients<float>::makeLowPass  (sr, 14000.0f, 0.707f);
+        hpOut[c].coefficients = juce::dsp::IIR::Coefficients<float>::makeHighPass (sr, 200.0f, 0.707f);
+        lpOut[c].coefficients = juce::dsp::IIR::Coefficients<float>::makeLowPass  (sr, 10000.0f, 0.707f);
+        hpIn[c].reset(); lpIn[c].reset(); hpOut[c].reset(); lpOut[c].reset();
+    }
     env.reset (sr, 2.0f, 200.0f, false);
     mix.reset (sr, 0.05);
     mix.setCurrentAndTargetValue (0.0f);
@@ -684,7 +699,7 @@ void VoiceChain::ParallelBus::prepare (double sr, int nblock, int nch)
 void VoiceChain::ParallelBus::reset()
 {
     par.clear();
-    hpIn.reset(); lpIn.reset(); hpOut.reset(); lpOut.reset();
+    for (int c = 0; c < 2; ++c) { hpIn[c].reset(); lpIn[c].reset(); hpOut[c].reset(); lpOut[c].reset(); }
     env.reset();
     mix.setCurrentAndTargetValue (0.0f);
 }
@@ -702,7 +717,7 @@ float VoiceChain::ParallelBus::process (juce::AudioBuffer<float>& dry, float amo
     {
         auto* d = par.getWritePointer (c);
         for (int i = 0; i < n; ++i)
-            d[i] = hpIn.processSample (lpIn.processSample (d[i]));
+            d[i] = hpIn[c].processSample (lpIn[c].processSample (d[i]));
     }
 
     // Compresión agresiva 8:1, GR por MUESTRA (sin el escalón estático por bloque).
@@ -737,7 +752,7 @@ float VoiceChain::ParallelBus::process (juce::AudioBuffer<float>& dry, float amo
     {
         auto* d = par.getWritePointer (c);
         for (int i = 0; i < n; ++i)
-            d[i] = hpOut.processSample (lpOut.processSample (d[i]));
+            d[i] = hpOut[c].processSample (lpOut[c].processSample (d[i]));
     }
 
     // Mezcla bajo el seco (escala por amount). La paralela es cuerpo/saturación
@@ -796,12 +811,22 @@ juce::dsp::IIR::Coefficients<float>::Ptr rbjHighShelf (double sr, float freq,
 void VoiceChain::TapeStage::prepare (double sr, int block, int nch)
 {
     sampleRate = sr; this->nch = nch;
-    juce::dsp::ProcessSpec spec { sr, (juce::uint32) block, (juce::uint32) nch };
+
+    os = std::make_unique<juce::dsp::Oversampling<float>> (
+        (size_t) juce::jmax (1, nch), osFactor,
+        juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,
+        false, true);
+    os->initProcessing ((size_t) block);
+    os->reset();
+
+    const double osRate = sr * (1 << osFactor);
+    const int osBlock = block * (1 << osFactor);
+    juce::dsp::ProcessSpec spec { osRate, (juce::uint32) osBlock, (juce::uint32) nch };
     // High-shelves RBJ correctos (regla del repo: makeHighShelf de JUCE 8.0.14
     // degenera a gain 0 y silencia; la variante del repo es inestable a <8k).
-    const auto preCoef = rbjHighShelf (sr, 3500.0f, 0.71f,  2.0f);
-    const auto deCoef  = rbjHighShelf (sr, 3500.0f, 0.71f, -2.0f);
-    const auto dcCoef  = juce::dsp::IIR::Coefficients<float>::makeFirstOrderHighPass (sr, 20.0f);
+    const auto preCoef = rbjHighShelf (osRate, 3500.0f, 0.71f,  2.0f);
+    const auto deCoef  = rbjHighShelf (osRate, 3500.0f, 0.71f, -2.0f);
+    const auto dcCoef  = juce::dsp::IIR::Coefficients<float>::makeFirstOrderHighPass (osRate, 20.0f);
     for (int c = 0; c < 2; ++c)
     {
         pre[c].prepare (spec); de[c].prepare (spec); dc[c].prepare (spec);
@@ -810,12 +835,13 @@ void VoiceChain::TapeStage::prepare (double sr, int block, int nch)
         *dc[c].coefficients  = *dcCoef;
         pre[c].reset(); de[c].reset(); dc[c].reset();
     }
-    env.reset (sr, 5.0f, 120.0f, false);
+    env.reset (osRate, 5.0f, 120.0f, false);
 }
 
 void VoiceChain::TapeStage::reset()
 {
     for (int c = 0; c < 2; ++c) { pre[c].reset(); de[c].reset(); dc[c].reset(); }
+    if (os) os->reset();
     env.reset();
 }
 
@@ -824,16 +850,18 @@ float VoiceChain::TapeStage::process (juce::AudioBuffer<float>& b, float amount)
     if (amount < 0.001f)
         return 0.0f;
 
-    const int n = b.getNumSamples();
     const int ch = juce::jmin (nch, b.getNumChannels());
 
     const float drive = 1.6f;   // 30 IPS: headroom alto, saturación sutil
     float grMax = 0.0f;
 
-    for (int i = 0; i < n; ++i)
+    auto up = os->processSamplesUp (juce::dsp::AudioBlock<const float> (b));
+    const int osN = (int) up.getNumSamples();
+
+    for (int i = 0; i < osN; ++i)
     {
-        const float dryL = b.getSample (0, i);
-        const float dryR = (ch > 1) ? b.getSample (1, i) : dryL;
+        const float dryL = up.getSample (0, i);
+        const float dryR = (ch > 1) ? up.getSample (1, i) : dryL;
 
         // Envolvente common-mode (L+R)/2: lamina picos sin caminar el estéreo.
         const float e = env.processSample ((dryL + dryR) * 0.5f);
@@ -850,9 +878,11 @@ float VoiceChain::TapeStage::process (juce::AudioBuffer<float>& b, float amount)
         xl = dc[0].processSample (de[0].processSample (xl));
         xr = dc[1].processSample (de[1].processSample (xr));
 
-        b.setSample (0, i, dryL + (xl - dryL) * amount);
+        up.setSample (0, i, dryL + (xl - dryL) * amount);
         if (ch > 1)
-            b.setSample (1, i, dryR + (xr - dryR) * amount);
+            up.setSample (1, i, dryR + (xr - dryR) * amount);
     }
+
+    os->processSamplesDown (juce::dsp::AudioBlock<float> (b));
     return (float) juce::jlimit (0.0, 1.0, (double) grMax);
 }

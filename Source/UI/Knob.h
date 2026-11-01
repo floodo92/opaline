@@ -18,7 +18,8 @@ namespace floodo::brand
    detents con `steps`, marcador de default y zero bipolar.
    ============================================================ */
 class Knob : public juce::Component,
-             public juce::SettableTooltipClient
+             public juce::SettableTooltipClient,
+             private juce::Timer
 {
 public:
     /* Acabado de la cara del dial:
@@ -37,6 +38,11 @@ public:
 
     void setValue (double v, bool notify = true);
     double getValue() const noexcept            { return value; }
+
+    /* Valor dibujado: sigue a `value` con un easing amortiguado durante el
+       drag (el dial "planea" tras el mouse — la sensación sedosa). El padre
+       lo usa para el texto que dibuja él mismo. */
+    double getDisplayedValue() const noexcept   { return displayedValue; }
 
     void setRange (double newMin, double newMax);
     void setDefaultValue (double v);            /* < min = sin marker */
@@ -100,10 +106,14 @@ public:
 private:
     float knobDiameter() const noexcept { return size + pad * 2.0f; }
 
+    void timerCallback() override;
+
     float size;       /* diámetro lógico del knob (CSS px) */
     float pad;        /* padSize — margen para sombra/arco */
 
     double value = 50, min = 0, max = 100, defaultValue = -1e300;
+    double targetValue = 50, displayedValue = 50;
+    juce::uint32 lastTickMs = 0;
     int    steps = 0;
     bool   bipolar = false;
     bool   hovered = false, dragging = false;

@@ -1,7 +1,23 @@
 #include "PluginEditor.h"
 #include "UI/BrandFonts.h"
+#include "BinaryData.h"
 
 using namespace floodo::brand;
+
+/* FAL mark (la F en cuadrado azul) — assets/fal_mark.svg.
+   Mismo posicionamiento que SignoffNative/CascadeNative: 32×32 centrado
+   verticalmente en el header, con un hairline vertical de separación. */
+static juce::Drawable* falMarkDrawable()
+{
+    static std::unique_ptr<juce::Drawable> cached;
+    if (! cached)
+        /* JUCE 9: createFromSVG(XmlElement) se elimino; el parser acepta el SVG
+           crudo. El asset esta compilado como BinaryData, asi que va directo.
+           Mismo patron que CascadeNative/SignoffNative. */
+        cached = juce::Drawable::createFromSVGString (juce::String::fromUTF8 (BinaryData::fal_mark_svg,
+                                                                              BinaryData::fal_mark_svgSize));
+    return cached.get();
+}
 
 /*============================================================================*/
 
@@ -27,19 +43,19 @@ OpalineAudioProcessorEditor::Frame::Frame (OpalineAudioProcessorEditor& owner)
 
     /* SHINE — el control que manda. 0..100. */
     setupKnob (shineKnob, 0.0, 100.0, 0.0);
-    shineAtt = std::make_unique<KnobAttachment> (ed.proc.apvts, "shine", shineKnob);
     shineKnob.setTooltip ("Shine - master amount of the whole polish chain");
+    shineAtt = std::make_unique<KnobAttachment> (ed.proc.apvts, "shine", shineKnob);
 
     /* BODY / AIR — bipolar centro 0 (la marca de cero importa). */
     setupKnob (bodyAirKnob, -100.0, 100.0, 0.0);
     bodyAirKnob.setBipolar (true);
-    bodyAirAtt = std::make_unique<KnobAttachment> (ed.proc.apvts, "bodyair", bodyAirKnob);
     bodyAirKnob.setTooltip ("Body / Air - tilt between low-mid warmth and 12k air");
+    bodyAirAtt = std::make_unique<KnobAttachment> (ed.proc.apvts, "bodyair", bodyAirKnob);
 
     /* OUTPUT */
     setupKnob (outputKnob, 0.0, 100.0, 70.0);
-    outputAtt = std::make_unique<KnobAttachment> (ed.proc.apvts, "output", outputKnob);
     outputKnob.setTooltip ("Output - final level trim");
+    outputAtt = std::make_unique<KnobAttachment> (ed.proc.apvts, "output", outputKnob);
 
     /* Meters */
     inMeter.setCompact (true);
@@ -88,6 +104,11 @@ void OpalineAudioProcessorEditor::Frame::paint (juce::Graphics& g)
        del fondo. */
     g.setColour (Colour (surface));
     g.fillRect (0.0f, 0.0f, (float) canvasW, 52.0f);
+
+    /* Bisel de luz en el borde superior del header (hairline blanco 4%) */
+    g.setColour (juce::Colours::white.withAlpha (0.04f));
+    g.fillRect (0.0f, 0.0f, (float) canvasW, 1.0f);
+
     g.setColour (line());
     g.fillRect (0.0f, 51.0f, (float) canvasW, 1.0f);
 
@@ -97,13 +118,40 @@ void OpalineAudioProcessorEditor::Frame::paint (juce::Graphics& g)
     g.fillRoundedRectangle (panelBox, rLg);
 
     /* ── Marca ── */
+    if (auto* mark = falMarkDrawable())
+    {
+        /* JUCE 9: Drawable ya no tiene setTransformToFit(); drawWithin con
+           stretchToFit pinta exactamente igual (mismo rect, mismo escalado). */
+        mark->drawWithin (g, juce::Rectangle<float> (32.0f, 32.0f)
+                                     .withCentre ({ 32.0f, 26.0f }),
+                           juce::RectanglePlacement::stretchToFit, 1.0f);
+    }
+
+    g.setColour (line());
+    g.fillRect (52.0f, (52.0f - 22.0f) / 2.0f, 1.0f, 22.0f);
+
     g.setFont (font ({ FontId::Barlow, 18.0f, 0.14f, false, true, 600 }));
     g.setColour (Colour (textHi));
-    g.drawText ("OPALINE", 14, 9, 140, 18, juce::Justification::centredLeft, false);
+    g.drawText ("OPALINE", 62, 9, 140, 18, juce::Justification::centredLeft, false);
+
+    /* Sheen iridiscente bajo el wordmark: el único "guarismo" de marca sobre
+       texto (gradiente accent → ópalo cálido → frío → accent, de
+       version_qwenf.html `.brand-name::after`, interpretado en 2px). */
+    {
+        const float tw = juce::jmax (1.0f, textWidth (g.getCurrentFont(), "OPALINE"));
+        juce::Rectangle<float> sw (62.0f, 28.0f, tw, 1.0f);
+        juce::ColourGradient sg (accent().withAlpha (0.0f), sw.getX(), 0,
+                                 accent().withAlpha (0.0f), sw.getRight(), 0, false);
+        sg.addColour (0.18f, opalWarm().withAlpha (0.45f));
+        sg.addColour (0.50f, accent().withAlpha (0.45f));
+        sg.addColour (0.82f, opalCold().withAlpha (0.45f));
+        g.setGradientFill (sg);
+        g.fillRect (sw);
+    }
 
     g.setFont (font ({ FontId::Inter, 9.0f, 0.18f, false, true, 400 }));
     g.setColour (Colour (textDim));
-    g.drawText ("VOCAL POLISH", 14, 30, 140, 10, juce::Justification::centredLeft, false);
+    g.drawText ("VOCAL POLISH", 62, 30, 140, 10, juce::Justification::centredLeft, false);
 
     /* ── Footer (dentro del panel, recortado a sus esquinas) ── */
     {
@@ -118,17 +166,56 @@ void OpalineAudioProcessorEditor::Frame::paint (juce::Graphics& g)
         g.setColour (line());
         g.fillRect (panelBox.getX(), fy, panelBox.getWidth(), 1.0f);
 
-        /* Derecha: dot de estado + estado real del MEASURE */
+        /* Derecha: dot de estado + estado real del MEASURE.
+           Bloque de ancho FIJO para que el % que cuenta (LISTENING 43% →
+           100%) no empuje a la etiqueta ni al punto. La etiqueta se ancla
+           por una esquina con ancho real y el número va en fuente tabular
+           ocupando su columna reservada a la derecha: nada respira. */
+        const auto splitStatus = [] (const juce::String& s) -> juce::StringPairArray
+        {
+            juce::StringPairArray r;
+            const int sp = s.lastIndexOfChar (' ');
+            if (sp > 0 && s.substring (sp + 1).containsOnly ("0123456789%"))
+            {
+                r.set ("label", s.substring (0, sp));
+                r.set ("tail",  s.substring (sp + 1));
+            }
+            else
+            {
+                r.set ("label", s);
+                r.set ("tail",  {});
+            }
+            return r;
+        };
+        const auto parts = splitStatus (statusRight);
+
         g.setFont (font ({ FontId::Inter, 8.0f, 0.08f, false, true, 500 }));
+        const float labelW = juce::jmax (1.0f, textWidth (g.getCurrentFont(), parts["label"]));
+
+        /* Columna reservada "100%" en la fuente tabular del proyecto. */
+        g.setFont (font ({ FontId::Mono, 8.0f, 0.0f, false, false, 400 }));
+        const float numW = parts["tail"].isEmpty() ? 0.0f
+                                                    : textWidth (g.getCurrentFont(), "100%");
+
         const float rx = panelBox.getRight() - 14.0f;    /* 378 */
-        const float tw = juce::jmax (1.0f, textWidth (g.getCurrentFont(), statusRight));
-        const float tx = rx - tw;
+        const float gap = 6.0f;
+        const float blockW = labelW + (numW > 0.0f ? gap + numW : 0.0f);
+        const float tx = rx - blockW;    /* esquina fija: la etiqueta no respira */
 
         g.setColour (statusColour);
         g.fillEllipse (tx - 10.0f, fy + 12.0f, 4.0f, 4.0f);
+
         g.setColour (Colour (textDim));
-        g.drawText (statusRight, (int) tx, (int) fy + 9, (int) tw, 10,
+        g.setFont (font ({ FontId::Inter, 8.0f, 0.08f, false, true, 500 }));
+        g.drawText (parts["label"], (int) tx, (int) fy + 9, (int) labelW, 10,
                     juce::Justification::centredLeft, false);
+
+        if (! parts["tail"].isEmpty())
+        {
+            g.setFont (font ({ FontId::Mono, 8.0f, 0.0f, false, false, 400 }));
+            g.drawText (parts["tail"], (int) (tx + labelW + gap), (int) fy + 9,
+                        (int) numW, 10, juce::Justification::centredLeft, false);
+        }
     }
 
     /* Borde del panel AL FINAL: el fill del footer, al llegar hasta el borde
@@ -148,7 +235,7 @@ void OpalineAudioProcessorEditor::Frame::paint (juce::Graphics& g)
 
     g.setFont (font ({ FontId::Mono, 22.0f, -0.02f, false, false, 500 }));
     g.setColour (Colour (textHi));
-    g.drawText (juce::String ((int) std::round (shineKnob.getValue())),
+    g.drawText (juce::String ((int) std::round (shineKnob.getDisplayedValue())),
                 (int) heroX, 252, (int) heroW, 22,
                 juce::Justification::centred, false);
 
@@ -158,7 +245,7 @@ void OpalineAudioProcessorEditor::Frame::paint (juce::Graphics& g)
                 juce::Justification::centred, false);
 
     /* BODY / AIR — bipolar, con signo */
-    const int baVal = (int) std::round (bodyAirKnob.getValue());
+    const int baVal = (int) std::round (bodyAirKnob.getDisplayedValue());
     g.setFont (font ({ FontId::Barlow, 10.0f, 0.12f, false, true, 500 }));
     g.setColour (Colour (textMid));
     g.drawText ("BODY / AIR", (int) bodyX, 378, (int) smallW, 10,
@@ -178,7 +265,7 @@ void OpalineAudioProcessorEditor::Frame::paint (juce::Graphics& g)
 
     g.setFont (font ({ FontId::Mono, 13.0f, 0.0f, false, false, 400 }));
     g.setColour (Colour (textHi));
-    g.drawText (juce::String ((int) std::round (outputKnob.getValue())),
+    g.drawText (juce::String ((int) std::round (outputKnob.getDisplayedValue())),
                 (int) outX, 390, (int) smallW, 13,
                 juce::Justification::centred, false);
 }
@@ -211,9 +298,10 @@ void OpalineAudioProcessorEditor::Frame::resized()
 /*============================================================================*/
 
 OpalineAudioProcessorEditor::OpalineAudioProcessorEditor (OpalineAudioProcessor& p)
-    : AudioProcessorEditor (&p), proc (p), frame (*this)
+    : AudioProcessorEditor (&p), proc (p), frame (*this), gate (*this)
 {
     addAndMakeVisible (frame);
+    addAndMakeVisible (gate);     // sobre el frame en z-order
 
     setResizable (true, true);
     setResizeLimits (300, 320, canvasW * 2, canvasH * 2);
@@ -226,6 +314,10 @@ OpalineAudioProcessorEditor::OpalineAudioProcessorEditor (OpalineAudioProcessor&
     /* El footer muestra datos reales desde el primer frame, sin esperar al
        primer tick del timer (importante también para el snapshot headless). */
     updateFooter();
+
+    /* Gate: con calibración persistida (recall de sesión) el panel completo
+       aparece al instante — el gate SOLO aplica al estado "nunca medido". */
+    updateGateVisibility();
 }
 
 OpalineAudioProcessorEditor::~OpalineAudioProcessorEditor() = default;
@@ -233,6 +325,19 @@ OpalineAudioProcessorEditor::~OpalineAudioProcessorEditor() = default;
 void OpalineAudioProcessorEditor::timerCallback()
 {
     const bool measuringNow = proc.isMeasuring();
+
+    /* Gate: revela el panel en cuanto el audio confirma el perfil; mantiene
+       el botón grande en fase con el Learn y repinta el % mientras escucha. */
+    updateGateVisibility();
+    if (gate.isVisible())
+    {
+        gate.measureGateBtn.setToggleState (measuringNow, juce::dontSendNotification);
+        const int reason = proc.getLastFinishReason();
+        gate.skipGateBtn.setVisible (! measuringNow && ! proc.hasMeasured()
+                                      && (reason == 2 || reason == 3));
+        if (measuringNow)
+            gate.repaint();
+    }
 
     if (measuring && !measuringNow)
     {
@@ -275,7 +380,8 @@ void OpalineAudioProcessorEditor::updateFooter()
                                        : juce::String ("--");
 
     const int nch = proc.getSessionChannels();
-    const juce::String chans = nch <= 1 ? juce::String ("MONO")
+    const juce::String chans = nch <= 0 ? juce::String ("--")
+                             : nch == 1 ? juce::String ("MONO")
                              : nch == 2 ? juce::String ("STEREO")
                                         : juce::String (nch) + " CH";
 
@@ -305,7 +411,7 @@ void OpalineAudioProcessorEditor::updateFooter()
         {
             case 2:  right = "NO SIGNAL"; col = Colour (cDanger); break;
             case 3:  right = "NO VOICE";  col = Colour (cDanger); break;
-            default: right = "READY";     col = Colour (textLo);  break;
+            default: right = "PRESS MEASURE TO CALIBRATE"; col = Colour (cWarn); break;
         }
     }
 
@@ -346,6 +452,115 @@ void OpalineAudioProcessorEditor::measurePressed()
     repaint();
 }
 
+/*============================================================================*/
+/* GateOverlay — pantalla de primera calibración (ver PluginEditor.h) */
+
+OpalineAudioProcessorEditor::GateOverlay::GateOverlay (OpalineAudioProcessorEditor& owner)
+    : ed (owner)
+{
+    setOpaque (true);
+
+    addAndMakeVisible (measureGateBtn);
+    measureGateBtn.setComponentID ("measure");
+    measureGateBtn.setLookAndFeel (laf.get());
+    measureGateBtn.setButtonText ("MEASURE");
+    measureGateBtn.setClickingTogglesState (true);
+    measureGateBtn.onClick = [this] { ed.measurePressed(); };
+
+    addAndMakeVisible (skipGateBtn);
+    skipGateBtn.setComponentID ("skip");
+    skipGateBtn.setLookAndFeel (laf.get());
+    skipGateBtn.setButtonText ("CONTINUE WITHOUT CALIBRATION");
+    skipGateBtn.setVisible (false);   // solo tras un intento fallido (escape con dignidad)
+    skipGateBtn.onClick = [this]
+    {
+        ed.gateDismissed = true;
+        ed.updateGateVisibility();
+    };
+}
+
+void OpalineAudioProcessorEditor::GateOverlay::paint (juce::Graphics& g)
+{
+    const int w = getWidth();
+    const int h = getHeight();
+
+    g.fillAll (Colour (bg));
+
+    /* Marca + wordmark centrados: el gate ES el producto, no un diálogo. */
+    if (auto* mark = falMarkDrawable())
+    {
+        /* JUCE 9: drawWithin con stretchToFit = mismo render que el viejo
+           setTransformToFit + draw. */
+        mark->drawWithin (g, juce::Rectangle<float> (44.0f, 44.0f)
+                                      .withCentre ({ w * 0.5f, h * 0.15f }),
+                           juce::RectanglePlacement::stretchToFit, 1.0f);
+    }
+
+    g.setFont (font ({ FontId::Barlow, 23.0f, 0.16f, false, true, 600 }));
+    g.setColour (Colour (textHi));
+    g.drawText ("OPALINE", 0, (int) (h * 0.26f), w, 26,
+                juce::Justification::centred, false);
+
+    g.setFont (font ({ FontId::Inter, 9.0f, 0.20f, false, true, 400 }));
+    g.setColour (Colour (textDim));
+    g.drawText ("VOCAL POLISH", 0, (int) (h * 0.26f) + 26, w, 12,
+                juce::Justification::centred, false);
+
+    /* La promesa, en inglés (el plugin pide su calibración). */
+    g.setFont (font ({ FontId::Inter, 13.0f, 0.0f, false, false, 400 }));
+    g.setColour (Colour (textMid));
+    g.drawText ("This plugin calibrates to your voice.",
+                0, (int) (h * 0.44f), w, 16, juce::Justification::centred, false);
+    g.drawText ("Press MEASURE during the strongest part of the vocal.",
+                0, (int) (h * 0.44f) + 20, w, 16, juce::Justification::centred, false);
+
+    /* Estado bajo el botón: progreso vivo, diagnóstico o la garantía de 4 s. */
+    const bool measuringNow = ed.proc.isMeasuring();
+    const int  reason       = ed.proc.getLastFinishReason();
+
+    if (measuringNow)
+    {
+        g.setFont (font ({ FontId::Mono, 11.0f, 0.0f, false, false, 400 }));
+        g.setColour (Colour (cWarn));
+        g.drawText ("LISTENING " + juce::String ((int) (ed.proc.getMeasureProgress() * 100.0f)) + "%",
+                    0, (int) (h * 0.74f), w, 14, juce::Justification::centred, false);
+    }
+    else if (reason == 2 || reason == 3)
+    {
+        g.setFont (font ({ FontId::Inter, 10.0f, 0.06f, false, true, 500 }));
+        g.setColour (Colour (cDanger));
+        g.drawText (reason == 2 ? "NO SIGNAL DETECTED - CHECK THE INPUT"
+                                : "NO VOICE DETECTED IN THIS MATERIAL",
+                    0, (int) (h * 0.74f), w, 14, juce::Justification::centred, false);
+    }
+    else
+    {
+        g.setFont (font ({ FontId::Inter, 9.0f, 0.06f, false, true, 400 }));
+        g.setColour (Colour (textLo));
+        g.drawText ("~4 SECONDS OF VOCAL IS ENOUGH",
+                    0, (int) (h * 0.74f), w, 12, juce::Justification::centred, false);
+    }
+}
+
+void OpalineAudioProcessorEditor::GateOverlay::resized()
+{
+    const int w = getWidth();
+    const int h = getHeight();
+
+    measureGateBtn.setBounds ((int) (w * 0.5f) - 95, (int) (h * 0.58f), 190, 46);
+    skipGateBtn.setBounds  ((int) (w * 0.5f) - 110, (int) (h * 0.80f), 220, 26);
+}
+
+void OpalineAudioProcessorEditor::updateGateVisibility()
+{
+    /* El gate sólo existe mientras la instancia no tenga calibración y el
+       usuario no lo haya descartado. Un recall de sesión con estado medido
+       NUNCA lo muestra. */
+    const bool show = ! proc.hasMeasured() && ! gateDismissed;
+    gate.setVisible (show);
+    frame.setVisible (! show);
+}
+
 void OpalineAudioProcessorEditor::paint (juce::Graphics& g)
 {
     g.fillAll (Colour (bg));
@@ -366,8 +581,12 @@ void OpalineAudioProcessorEditor::resized()
                                 (float) r.getHeight() / (float) canvasH);
     currentScale = s;
 
+    /* El gate cubre TODO el editor (layout proporcional propio, sin canvas
+       fijo: responde a cualquier tamaño con el aspect lockeado). */
+    gate.setBounds (r);
+
     frame.setSize (canvasW, canvasH);
     frame.setTransform (juce::AffineTransform().scale (s));
     frame.setTopLeftPosition ((int) std::round (((float) r.getWidth() - canvasW * s) / 2.0f),
-                              (int) std::round (((float) r.getHeight() - canvasH * s) / 2.0f));
+                               (int) std::round (((float) r.getHeight() - canvasH * s) / 2.0f));
 }

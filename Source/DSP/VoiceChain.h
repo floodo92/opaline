@@ -37,7 +37,7 @@ public:
     float getParGR()  const noexcept { return parGR; }
 
     /* Latencia real del chain (la aporta el oversampling del exciter). */
-    int getLatencySamples() const noexcept { return exciter.getLatencySamples(); }
+    int getLatencySamples() const noexcept { return exciter.getLatencySamples() + tape.getLatencySamples(); }
 
 private:
     /* Envoltura mono de un polo (muestreo por muestra) para los detectores.
@@ -122,17 +122,19 @@ private:
         float lastCentre = -1.0f;
     };
 
-    /* 7: exciter armónico (tanh soft sobre >2k, oversampling 2× para
-       minimizar aliasing de los armónicos generados) */
+/* 7: exciter armónico (tanh soft sobre >2k, oversampling 4× para
+           minimizar aliasing de los armónicos generados) */
     struct HarmonicExciter
     {
+        static constexpr int osFactor = 2;    // 2^2 = 4×
+
         void prepare (double sr, int block, int nch);
         void reset();
         void process (juce::AudioBuffer<float>& b, float amount);
         int getLatencySamples() const noexcept
         { return os ? (int) os->getLatencyInSamples() : 0; }
 
-        juce::dsp::IIR::Filter<float> hp;
+        juce::dsp::IIR::Filter<float> hp[2];   // un estado de filtro POR canal
         std::unique_ptr<juce::dsp::Oversampling<float>> os;
         double sampleRate = 0; int nch = 2;
     };
@@ -153,7 +155,7 @@ private:
                                                                        float freq,
                                                                        float q,
                                                                        float gainDb);
-        juce::dsp::IIR::Filter<float> highpass, lowMidCut, mudCut, airShelf, presence, presence4k;
+        juce::dsp::IIR::Filter<float> highpass[2], lowMidCut[2], mudCut[2], airShelf[2], presence[2], presence4k[2];
         double sampleRate = 0; int nch = 2;
         /* Caché de coeficientes (histéresis): solo se reconstruye el filtro y se
             llama a reset() cuando la frecuencia/gain real cambian de forma
@@ -174,7 +176,7 @@ private:
         void reset();
         float process (juce::AudioBuffer<float>& dry, float amount);
         juce::AudioBuffer<float> par;
-        juce::dsp::IIR::Filter<float> hpIn, lpIn, hpOut, lpOut;
+        juce::dsp::IIR::Filter<float> hpIn[2], lpIn[2], hpOut[2], lpOut[2];
         EnvFollower env;
         juce::LinearSmoothedValue<float> mix { 0.0f };
         double sampleRate = 0; int nch = 2;
@@ -186,13 +188,20 @@ private:
        tanh normalizado → de-énfasis (tercer armónico suave, no "arena"),
        compresión de picos por envolvente common-mode (L+R)/2 hasta ~3.5 dB
        (el "laminador") y DC blocker. Mezcla dry/wet escalada por Shine.
-       Cero latencia, cero allocs en audio. */
+       Oversampling 4×: el tanh a rate base pliega el 3er armónico de un tono
+       de 15 kHz (45 kHz) a 900 Hz (-28 dB audible a Shine alto). Cero allocs
+       en audio. */
     struct TapeStage
     {
+        static constexpr int osFactor = 2;    // 2^2 = 4×
+
         void prepare (double sr, int block, int nch);
         void reset();
         float process (juce::AudioBuffer<float>& b, float amount);
+        int getLatencySamples() const noexcept
+        { return os ? (int) os->getLatencyInSamples() : 0; }
         juce::dsp::IIR::Filter<float> pre[2], de[2], dc[2];
+        std::unique_ptr<juce::dsp::Oversampling<float>> os;
         EnvFollower env;
         double sampleRate = 0; int nch = 2;
     };

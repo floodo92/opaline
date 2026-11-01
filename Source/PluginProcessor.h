@@ -3,6 +3,7 @@
 #include "DSP/VoiceChain.h"
 #include "DSP/LearnEngine.h"
 #include "DSP/GainMatcher.h"
+#include "InstallPing.h"
 
 /* ============================================================
    OPALINE — polisher vocal de lujo (serie free).
@@ -94,6 +95,13 @@ private:
     /* Estado de bypass del bloque anterior: en cada transición se limpia la
        cadena y se fijan los parámetros sin rampa (A/B idéntico, sin deriva). */
     bool wasBypassed = true;
+
+    /* Auto-trim del Learn: sube la entrada al punto dulce y compensa con la
+       inversa exacta a la salida (loudness neta idéntica). Rampa 300 ms para
+       que ni siquiera el cambio de punto de operación se note. `trimTargetDb`
+       es el valor persistente entre prepareToPlay. */
+    juce::LinearSmoothedValue<float> trimIn { 1.0f };
+    float trimTargetDb = 0.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (OpalineAudioProcessor)
 };

@@ -1,11 +1,167 @@
-# OPALINE — contexto del proyecto (regenerado 2026-09-18)
+# OPALINE — contexto del proyecto (regenerado 2026-09-18 · sesión 2026-09-19)
 
 Polisher vocal de un knob, serie free de Flodo's Audio Labs. VST3/Windows, JUCE nativo.
+
+**Versión: 1.0.1** (bump 2026-10-08) — única fuente: `CMakeLists.txt` →
+`project(Opaline VERSION 1.0.1)`; de ahí sale `JucePlugin_VersionString`
+(instal ping, UI, host). Anterior: 1.0.0.
+
+**Gotcha del bump**: el `VERSIONINFO` de Windows sale de
+`Build_Snapshot/Opaline_artefacts/JuceLibraryCode/Opaline_resources.rc`, que
+JUCE genera con `add_custom_command` **sin DEPENDS sobre `Info.txt`** → una vez
+creado nunca se regenera. Si al cambiar `project(... VERSION x)` el host sigue
+mostrando la versión vieja, **borrar ese `.rc`** y reconstruir (`Info.txt` sí
+se actualiza solo).
+
+---
+
+# SESIÓN 2026-09-20 — bias 0,10 + air 2,0 + auto-trim MEASURE + cursor + descripciones
+
+## Qué se hizo (todo instalado y validado, hash `FE23CFF8AC2FA274A25F0E6BB78BF62D5B02B1411D41AF632C2FEE371BC6A0D0`)
+1. **bias exciter 0,06 → 0,10** (`VoiceChain.cpp`, decision pendiente de la sesión
+   19-sep resuelta): aliasing peor caso **-59,9 dB @ 20,1 kHz** (antes -64,3 a 0,06);
+   a 20,1 kHz = inaudible. Gauntlet PASS con 1 warn (umbral -60 por 0,1 dB).
+2. **Test CLICK_HUNT nuevo en tools/Gauntlet** (16 tests ahora): detector de
+   discontinuidades (delta vs RMS local de la derivada excluyendo al candidato),
+   4 escenarios (steady Shine100 / bypass toggle cada 64 ms / knob-jerk 25 % /
+   silencio). Opaline: **0 clics** a 48k/256, 44k1/64, 96k/1024. El usuario
+   "oía a veces clics" — no provienen del plugin (posible MEASURE o host; ver abajo).
+3. **BODY/AIR airBoost 1,2 → 2,0 dB** (pedido del usuario: el knob parecía muerto
+   en Bertom). Swing 1,0..3,0 dB a Shine 100. Lowmid intacto (3 dB).
+4. **Auto-trim del MEASURE** (nuevo): el Learn mide RMS de los frames con voz
+   (gate body, ≥8 frames) → `LearnProfile.autoTrimDb = clamp(-18 - rmsDb, -15, +18)`.
+   El processor aplica ganancia a la entrada del wet path y su INVERSA exacta
+   a la salida (por bloque, rampa 300 ms): loudness neta idéntica, la cadena solo
+   cambia de punto de operación. Persiste en el estado (`autoTrimDb`). Invisible
+   por pedido. **Cubierta de test parcial**: MEASURE no es parámetro → Gauntlet
+   no lo ejercita; validar de oído (toma débil a -30 dBFS + MEASURE → el comp
+   debería empezar a trabajar sin salto de volumen).
+5. **Cursor de knobs**: `UpDownResizeCursor` → `NormalCursor` (`Knob.cpp:52`).
+6. **Descripciones** tienda + nerds, ES/EN: `Opaline_descripciones.txt`.
+
+## Sesión 2026-09-20 (histórica, resumen corto)
+Gauntlet creado (15 tests, hostea el .vst3 real); fix de aliasing: TapeStage a
+4× oversampling (tanh corría a rate base, 3er armónico de 15 kHz plegaba a
+900 Hz a -28 dB); bias 0,16→0,06; latencia 3→10 muestras. Ver git para detalle.
+
+## Tarde 2026-09-20 — GATE en la free también (instalado 718157..26CE7)
+Portado el patrón del Pro (decisión del usuario: su flujo real de la free es
+"primero calibrar, después girar el knob"): instancia virgen → GateOverlay
+solo con MEASURE grande + promesa "Press MEASURE during the strongest part of
+the vocal" + LISTENING % + escape CONTINUE WITHOUT CALIBRATION tras fallo.
+Audio nunca bloqueado; recall medido nunca gatea; LAF de botones con fuente
+escalable (h*0.30); footer sin medir = "PRESS MEASURE TO CALIBRATE" ámbar.
+Gauntlet 15+1 WARN, pluginval 10 SUCCESS. Cambios de esta tarde SIN commit
+(política del repo: solo commit a pedido del usuario).
+
+## Decisiones resueltas
+- bias = 0,10 (carácter > suelo de aliasing; el warn de -59,9 dB se acepta).
+- BODY/AIR: lado aire subido a 2,0 dB; el usuario confirmó que el Learn y el
+  Shine recomendado funcionan bien.
+- MEASURE no toca el Shine sin permiso: **SÍ lo configura** (59 % para la voz
+  del usuario, aprobado: "el learn anda perfecto").
+
+## Git (NO commiteado, a propósito)
+Cambios sin commit de las sesiones 19 y 20-sep en Opaline/: bias 0,10, air 2,0,
+auto-trim (LearnEngine.{h,cpp} + PluginProcessor.{h,cpp}), cursor, CLICK_HUNT
+está en tools/Gauntlet (fuera de este repo), descripciones. Último commit `27209d6`.
+
+## En pausa (no tocar)
+Saneado NUMERIC_SANITIZE en Cascade/Signoff/Zenith/AutoClassic, desborde de Wake.
+
+## NUEVO: Opaline Pro (2026-09-20, sesión nocturna)
+Fork completo en `G:\...\Windows\Opaline Pro\` (repo aparte, commit `bdd0c51`):
+misma cadena + 8 trims por etapa (12 params), UI horizontal 960×400 tipo rack,
+Gauntlet 15+1 WARN, pluginval SUCCESS, instalado como "Opaline Pro.vst3"
+(hash F3E257…DB1E9C). Contexto propio: `Opaline Pro\OPALINE_PRO_CONTEXT.md`.
+
+---
+
+# SESIÓN 2026-09-19 — Gauntlet + fix de aliasing (CONTINUAR AQUÍ)
+
+## Qué se hizo
+1. **Harness `tools/Gauntlet`** (nuevo, fuera de `Opaline/`): app de consola JUCE que hostea el
+   `.vst3` real y corre **15 tests extremos** (NaN/Inf, DC, gain staging, tortura de automatización,
+   matrices SR/bloque, roundtrip de estado, create/destroy, PERF, aliasing…). Wrapper
+   `tools/Gauntlet/run_gauntlet.ps1` con catálogo. Skill nuevo `.opencode/skills/white-sea-gauntlet`.
+2. **Bug real de aliasing encontrado y corregido en Opaline** (ver detalle abajo).
+3. Test `ALIASING_FLOOR` reescrito: antes medía un solo tono (8003 Hz) y **solo a defaults**, donde
+   `Shine=0` apaga la saturación → daba un falso "-92,3 dB limpio". Ahora barre **12 kHz y 15 kHz**
+   × 9 configs (default, min, max, cada param a max, 3 aleatorias), **forzando `bypass=0`** (si no,
+   "todos a max" dejaba el bypass en 1 y el barrido no probaba nada), y reporta el peor caso.
+
+## El bug
+- Síntoma (confirmado por el usuario en SPAN antes del tool): **alias audible a Shine alto**.
+- Medido: **-28,1 dB @ 900 Hz** con Shine al 100 % y tono de 15 kHz (a defaults seguía en -92,3 dB).
+- Causa: 900 Hz = 45 kHz − 44,1 kHz, o sea el **3er armónico de 15 kHz plegado**. No bastaba el
+  oversampling: **el `tanh` del `TapeStage` corría a rate base** (no el exciter: subir el exciter a
+  4× dejó el alias *idéntico*, lo que lo descartó; aislado con `chain.process(buffer, ~kStageTape)`).
+- Regla: con `f = 15 kHz` y armónicos hasta el 7º hace falta **Nyquist ≥ 7·15 kHz** → **4×** (176,4 kHz).
+
+## Fix aplicado
+- `VoiceChain.h`: `HarmonicExciter::osFactor = 2` y **`TapeStage::osFactor = 2`** (2² = **4×**);
+  `TapeStage` gana `os` + `getLatencySamples()`; **`VoiceChain::getLatencySamples()` ahora SUMA**
+  la del exciter y la del tape (en serie), y `TapeStage::reset()` resetea su `os`.
+- `VoiceChain.cpp`: exciter a 4× (prep y `osSpec` a `sr*4`, HP 3k a `sr*4`); **tape reescrito a 4×**
+  (pre/de-énfasis, `tanh`, DC blocker y envolvente 5/120 ms ahora a `sr*4`; mezcla dry/wet dentro del
+  dominio sobremuestreado, igual que el exciter).
+- `VoiceChain.cpp:497`: `bias` del exciter **0,16 → 0,06**. Su 2º armónico (12 kHz → 24 kHz) caía en
+  la banda de transición del decimador y sobrevivía (~-55 dB) **tanto con IIR polyphase como con FIR
+  equiripple** (el FIR además disparaba la latencia a 43 muestras → descartado).
+
+| | antes | después |
+|---|---|---|
+| Aliasing (peor caso, 12k/15k, Shine 100) | **-28,1 dB @ 900 Hz** | **-64,3 dB @ 20,1 kHz** |
+| Latencia | 3 muestras | **10 muestras** (0,21 ms, el DAW compensa) |
+| PERF_BUDGET | 8,0 µs/bloque | **8,6 µs/bloque** (0,3 % de un core) |
+
+## Validación (todo verde)
+- Gauntlet **15/15 PASS**, 0 warn, 0 fail, 0 skip (`tools/Gauntlet/report_Opaline.txt`).
+- `pluginval --validate-in-process --strictness-level 10` → **SUCCESS**.
+- `DspSelfTest.exe` → **PASS** (STEREO-ISOLATION, sin NaN, cadena audible).
+- Hash instalado **`2FB66AE0D0B0547CBF96B8D45B0B56D285AEB947A09978ACFFED8631DBF8C4E9`**.
+- **Nota**: a `Shine=0` la cadena no corre exciter ni tape → el sonido a defaults está **intacto**
+  respecto a la build anterior.
+
+## Decisión PENDIENTE para mañana (es la única abierta)
+- **Carácter vs. suelo de aliasing.** El usuario escuchó la build: *"no se ve nada de alias ni en 12
+  ni en 15, lo escucho bastante bien"*. Estado actual `bias=0,06` = un pelín de alias **inaudible**
+  (-64,3 dB a 20,1 kHz, por encima del oído) conservando ~37 % de los armónicos pares.
+- Lever único: `bias` en `VoiceChain.cpp:497` → `0,10` ≈ **-60 dB** (más carácter par, al límite),
+  `0,06` = actual, `0,00` = **-77 dB** sin pares. Si el usuario quiere más carácter: **medir 0,10 y
+  hacer escucha A/B**. No tocar sin su oído.
+
+## Cómo retomar (comandos exactos)
+```powershell
+# Gauntlet (recompilar si se toca el harness)
+cmake --build tools\Gauntlet\Build --config Release
+# Opaline: solo aliasing (rápido) o batería completa
+& "tools\Gauntlet\Build\Gauntlet_artefacts\Release\Gauntlet.exe" --only ALIASING_FLOOR "C:\Program Files\Common Files\VST3\Opaline.vst3"
+& "tools\Gauntlet\Build\Gauntlet_artefacts\Release\Gauntlet.exe" --out "tools\Gauntlet\report_Opaline.txt" "C:\Program Files\Common Files\VST3\Opaline.vst3"
+# Build + install de Opaline
+cmake --build Opaline\Build --config Release --target Opaline_VST3
+Copy-Item -LiteralPath "Opaline\Build\Opaline_artefacts\Release\VST3\Opaline.vst3\Contents\x86_64-win\Opaline.vst3" -Destination "C:\Program Files\Common Files\VST3\Opaline.vst3\Contents\x86_64-win\Opaline.vst3" -Force
+```
+
+## Estado de git (NO commiteado)
+`Opaline/` es un repo git aparte. Hay cambios sin commitear de esta sesión **y** de la anterior (UI
+de knobs, snapshots, selftest): `CMakeLists.txt`, `Source/DSP/VoiceChain.{h,cpp}`,
+`Source/PluginEditor.{h,cpp}`, `Source/PluginProcessor.cpp`, `Source/UI/{Knob,LedMeter}.{h,cpp}`,
+`tests/snapshots/stories/Opaline_stories.cpp`, `tools/dsp_selftest/main.cpp`, `assets/fal_mark.svg`
+(sin trackear). Último commit `27209d6`. **Nada commiteado a propósito** (el usuario no lo pidió).
+
+## Lo demás sigue en pausa (no tocar)
+Saneado de entrada en Cascade/Signoff/Zenith/AutoClassic (`NUMERIC_SANITIZE`), desborde de Wake
+(196 dBFS + PERF 109 %). El usuario dijo explícitamente que el foco es Opaline.
+
+---
 
 ## Estado actual (build instalada)
 - Build Release `Opaline_VST3` con **UI rediseñada compacta cuadrada** tipo one-knob free.
 - Instalada en `C:\Program Files\Common Files\VST3\Opaline.vst3`.
-- Hash SHA-256: `1652C2314D79DB6F2D076EDD728478FECF1068B6468FA73FC322C73B99962379`. **Radio-ready 18-sep v3**: cascada óptica (A leveler 10/250 + B picos 5/150) + presence fijo 4k (+1.5 dB·Shine) + tape glue final A800 vocal (pre/de 3.5k ±2 dB, tanh drive 1.6, comp common-mode 5/120 hasta ~3.5 dB, DC blocker 20 Hz). Base aprobada 18-sep v2 intacta (exciter 3.2/0.55, presence 2.0+0.5·air, air 1.2, óptico thr 0.24+0.10/ratio 1+2.0/knee 6 dB, softclip −1.4 dBFS).
+- **2026-09-19**: latencia **10 muestras** (4× oversampling en exciter + tape, ver sesión arriba);
+  Gauntlet 15/15 PASS; hash `2FB66AE0D0B0547CBF96B8D45B0B56D285AEB947A09978ACFFED8631DBF8C4E9`.
+- Hash anterior (18-sep v3, sin el fix de aliasing): `1652C2314D79DB6F2D076EDD728478FECF1068B6468FA73FC322C73B99962379`. **Radio-ready 18-sep v3**: cascada óptica (A leveler 10/250 + B picos 5/150) + presence fijo 4k (+1.5 dB·Shine) + tape glue final A800 vocal (pre/de 3.5k ±2 dB, tanh drive 1.6, comp common-mode 5/120 hasta ~3.5 dB, DC blocker 20 Hz). Base aprobada 18-sep v2 intacta (exciter 3.2/0.55, presence 2.0+0.5·air, air 1.2, óptico thr 0.24+0.10/ratio 1+2.0/knee 6 dB, softclip −1.4 dBFS).
 - Validado con `pluginval --validate-in-process --strictness-level 10` → **SUCCESS** (bloques 64–1024, 48k/96k).
 - Selftest de consola (`Build_Selftest\Release\DspSelfTest.exe`) → **PASS** (cadena audible, exit 0). BRIGHTNESS 100% → −0.79 dB (señal sintética = 100% sibilancia, el de-esser domea: correcto); sin NaN.
 
@@ -42,11 +198,11 @@ Dirección aprobada con el usuario a partir de "¿se puede mejorar a radio ready
   - DC blocker primer orden @ 20 Hz tras el moldeo; mezcla `dry + (wet−dry)·amount` (bypass exacto a Shine 0); `kStageTape` y opción de mascara por etapa desde UI.
   - FOCO en el ciclo de vida: `tape.prepare/reset` llamados desde `VoiceChain::prepare/reset`.
 - **LEGGO (NaN 18-sep)**: el high-shelf del tape usaba `EqStage::makeHighShelf` (variante A²±1, NO RBJ auténtico) → a 3.5 kHz genera polos fuera del círculo unitario (|p|≈1.038) que **explotan a inf/NaN** después de ~300 muestras (el filtro se vuelve inestable a frecuencias <8k; en el air shelf de 12k nunca se notó). Correto con `rbjHighShelf()` local (RBJ Audio-EQ-Cookbook auténtico, `(A+1)±(A-1)cos(w)`): estable en todo el rango. Diagnóstico por instrumentación: `processSample` con entrada finita daba `-nan(ind)` → coeficientes, no estado.
-- **Oversampling 2× en el exciter armónico** (`VoiceChain::HarmonicExciter`) con `juce::dsp::Oversampling<float>` half-band polyphase IIR:
+- **Oversampling 4× en el exciter armónico** (`VoiceChain::HarmonicExciter::osFactor = 2`) con `juce::dsp::Oversampling<float>` half-band polyphase IIR (**era 2× hasta 2026-09-19; el 3er armónico de un tono de 15 kHz a 2× pliega a 900 Hz — ver sesión arriba**):
   - Reduce el aliasing de los armónicos del tanh (banda >3 kHz) → menos "gris" y brillo más limpio a Shine alto.
-  - API JUCE 8: `initProcessing` + `processSamplesUp/processSamplesDown` sobre `AudioBlock`. El HP 3 kHz se prepara a la tasa oversampleada (2×).
+  - API JUCE 8: `initProcessing` + `processSamplesUp/processSamplesDown` sobre `AudioBlock`. El HP 3 kHz se prepara a la tasa oversampleada (hoy 4× = `sr*4`).
   - `prepare`/`reset` en hilo de control; en audio no hay allocs (los buffers internos se pre-dimensionan en `initProcessing`).
-  - La latencia del oversampling se reporta al DAW: `setLatencySamples(chain.getLatencySamples())` en `prepareToPlay`.
+  - La latencia del oversampling se reporta al DAW: `setLatencySamples(chain.getLatencySamples())` en `prepareToPlay` (**ahora suma exciter + tape: 10 muestras**).
   - **NUEVO**: HPF adaptativo en `VoiceChain::EqStage` basado en `LearnProfile.medianPitchHz`:
     - Calculado como `clamp(medianPitchHz * 0.5, 40, 150)` Hz
     - Se mantiene siempre por debajo del fundamental detectado (con margen) para evitar comerse el cuerpo de voces graves

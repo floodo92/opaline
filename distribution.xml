@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  distribution.xml de Opaline (instalador macOS).
+
+  Las DOS partes son obligatorias:
+    1. choices-outline / choice: sin esto productbuild arma un product archive
+       sin payload instalable y Apple lo rechaza con
+       "The contents of the package could not be extracted" +
+       "has no signed executables or bundles".
+    2. pkg-ref con id, version y auth="Root" apuntando al .pkg: el id tiene que
+       ser EXACTAMENTE el identificador usado en el pkgbuild del workflow.
+-->
+<installer-gui-script minSpecVersion="1">
+    <title>Opaline</title>
+
+    <pkg-ref id="com.floodos.opaline.vst3"/>
+    <pkg-ref id="com.floodos.opaline.au"/>
+
+    <options customize="never" require-scripts="false"/>
+
+    <choices-outline>
+        <line choice="default">
+            <line choice="com.floodos.opaline.vst3"/>
+            <line choice="com.floodos.opaline.au"/>
+        </line>
+    </choices-outline>
+
+    <choice id="default"/>
+    <choice id="com.floodos.opaline.vst3" title="Opaline VST3">
+        <pkg-ref id="com.floodos.opaline.vst3"/>
+    </choice>
+    <choice id="com.floodos.opaline.au" title="Opaline AU">
+        <pkg-ref id="com.floodos.opaline.au"/>
+    </choice>
+
+    <pkg-ref id="com.floodos.opaline.vst3" version="1.0.1" auth="Root">vst3_component.pkg</pkg-ref>
+    <pkg-ref id="com.floodos.opaline.au"   version="1.0.1" auth="Root">au_component.pkg</pkg-ref>
+</installer-gui-script>

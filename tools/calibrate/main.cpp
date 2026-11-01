@@ -28,7 +28,12 @@ static uint32_t rdU32 (const uint8_t* p) { return p[0] | (uint32_t) p[1] << 8 | 
 static bool readWav (const fs::path& path, WavData& w)
 {
     FILE* f = nullptr;
+    // fopen_s es de MSVC y no existe en clang/macOS: se usa fopen ahi.
+#if defined(_MSC_VER)
     fopen_s (&f, path.string().c_str(), "rb");
+#else
+    f = fopen (path.string().c_str(), "rb");
+#endif
     if (!f) return false;
 
     uint8_t hdr[12];

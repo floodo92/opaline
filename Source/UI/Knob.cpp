@@ -1,6 +1,6 @@
 #include "Knob.h"
 #include "BrandFonts.h"
-#include "BrandMenu.h"   /* BrandMenuLNF - menú contextual del parámetro */
+#include "BrandMenu.h"   /* BrandMenuLNF — menú contextual del parámetro */
 
 namespace floodo::brand
 {
@@ -50,7 +50,7 @@ static void radialLine (juce::Path& p, float cx, float cy, double a, float r1, f
 Knob::Knob (float knobSize)
     : size (knobSize), pad (8.0f)
 {
-    setMouseCursor (juce::MouseCursor::UpDownResizeCursor); /* ns-resize */
+    setMouseCursor (juce::MouseCursor::NormalCursor); /* cursor del sistema por defecto, sin flechas de resize */
     setOpaque (false);
     setWantsKeyboardFocus (true);   /* slider accesible: flechas/Home/End + Narrator */
 }
@@ -61,6 +61,7 @@ void Knob::setValue (double v, bool notify)
     v = juce::jlimit (min, max, v);
     if (juce::exactlyEqual (v, value)) return;
     value = v;
+    targetValue = v;
 
     /* Aviso a los clientes de accesibilidad cuando el valor cambia por
        fuera del drag (recall de sesión, Home/End...). Durante el arrastre
@@ -69,9 +70,40 @@ void Knob::setValue (double v, bool notify)
         if (auto* handler = getAccessibilityHandler())
             handler->notifyAccessibilityEvent (juce::AccessibilityEvent::valueChanged);
 
+    /* Primer cambio tras reposo: no animar desde la posición de carga. */
+    if (! isTimerRunning())
+    {
+        displayedValue = value;
+        lastTickMs = juce::Time::getMillisecondCounter();
+        startTimerHz (120);
+    }
+
     repaint();
     if (onValueChanged) onValueChanged();
     if (notify && onChange) onChange (value);
+}
+
+void Knob::timerCallback()
+{
+    const juce::uint32 now = juce::Time::getMillisecondCounter();
+    const double dt = juce::jlimit (0.0, 0.05, (now - lastTickMs) / 1000.0);
+    lastTickMs = now;
+
+    const double diff = targetValue - displayedValue;
+    if (std::abs (diff) > 0.001)
+    {
+        constexpr double rate = 18.0;
+        displayedValue += diff * (1.0 - std::exp (-rate * dt));
+        repaint();
+        if (onValueChanged) onValueChanged();
+    }
+    else
+    {
+        displayedValue = targetValue;
+        stopTimer();
+        repaint();
+        if (onValueChanged) onValueChanged();
+    }
 }
 
 void Knob::setRange (double newMin, double newMax)
@@ -98,8 +130,8 @@ double Knob::snapIfNeeded (double raw) const
 
 juce::String Knob::displayText() const
 {
-    if (formatValue) return formatValue (value);
-    return juce::String ((int) std::round (value)) + "%";
+    if (formatValue) return formatValue (displayedValue);
+    return juce::String ((int) std::round (displayedValue)) + "%";
 }
 
 void Knob::resized()
@@ -113,7 +145,7 @@ void Knob::paint (juce::Graphics& g)
     const float  ch = knobDiameter();
     const float  cx = cw / 2.0f;
     const float  cy = ch / 2.0f;
-    const double norm       = clampNorm ((value - min) / (max - min));
+    const double norm       = clampNorm ((displayedValue - min) / (max - min));
     const double valueAngle = normToAngle (norm);
 
     if (finish == Finish::Precision)
@@ -248,7 +280,7 @@ void Knob::paintBrandDial (juce::Graphics& g, float cx, float cy,
         if (steps > 1)
         {
             const double half = 0.5 / (double) (steps - 1);
-            const double n = clampNorm ((value - min) / (max - min));
+            const double n = clampNorm ((displayedValue - min) / (max - min));
             arcFrom = normToAngle (juce::jlimit (0.0, 1.0, n - half));
             arcTo   = normToAngle (juce::jlimit (0.0, 1.0, n + half));
         }
@@ -480,9 +512,9 @@ void Knob::paintText (juce::Graphics& g, float cw, float ch)
                                                  38%/34% (chico)
                                                  #22252e -> #1d2129 -> #13161c
      .knob-center-mark                 marca 12h del cero bipolar (solo bipolar)
-     .knob-hero-indicator              aguja BLANCA 2px del centro al borde,
-                                       cap redondo; ::after (solo hero activo)
-                                       tine los 24px exteriores con el opalo
+.knob-hero-indicator              aguja BLANCA 2px del centro al borde,
+                                        cap redondo; ::after (hero siempre)
+                                        tine los 24px exteriores con el opalo
      .knob-hero-dot / .knob-small-dot  punto #0e1013 con hairline, ENCIMA
 
    Geometria del mockup (px CSS sobre el canvas): el hero mide 156 (wellR 78,
@@ -496,7 +528,6 @@ void Knob::paintPrecisionDial (juce::Graphics& g, float cx, float cy,
 {
     juce::ignoreUnused (norm);
 
-    const bool  active = isActive();
     const float dia    = knobDiameter();
     const float wellR  = dia * 0.5f;
     const bool  hero   = dia > 100.0f;
@@ -588,9 +619,10 @@ void Knob::paintPrecisionDial (juce::Graphics& g, float cx, float cy,
                            hero ? juce::Colours::white.withAlpha (0.90f)
                                 : Colour (0xffeceef1).withAlpha (0.92f));
 
-        /* ::after — solo `.knob-hero-wrap.is-active`: tramo EXTERIOR de 24px
-           teñido con el opalo frio->accent->calido al 60% de opacidad. */
-        if (hero && active)
+        /* ::after — `.knob-hero-wrap.is-active`. El mockup la lleva SIEMPRE
+           activa (el HTML la hardcodea en reposo), así que el tramo exterior
+           de 24px teñido con el ópalo está siempre presente en el hero. */
+        if (hero)
         {
             const float r0 = ptrLen - 24.0f;   /* 54 -> 30 */
             juce::Path tip;

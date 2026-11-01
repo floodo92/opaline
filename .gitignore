@@ -20,3 +20,6 @@ opaline_preview.png
 *.vcxproj.user
 tests/snapshots/current/
 tests/snapshots/diff/
+
+# Cache del grafo de codigo (se regenera solo)
+graphify-out/

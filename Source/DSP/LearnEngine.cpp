@@ -186,6 +186,15 @@ void LearnEngine::process (const juce::AudioBuffer<float>& buffer, bool active)
         {
             accumSamples.fetch_add (kHop, std::memory_order_relaxed);
             quietWindows = 0;
+
+            // Auto-trim: RMS temporal (broadband, dominio del tiempo) del frame
+            // con voz. Mismo gate que el progreso: mide el nivel con el que la
+            // voz REAL entra, no silencios ni pausas.
+            double frameEnergy = 0.0;
+            for (int i = 0; i < kFftSize; ++i)
+                frameEnergy += (double) base[i] * base[i];
+            b.rmsSum    += frameEnergy;
+            b.rmsFrames += 1;
         }
     }
 
@@ -311,6 +320,22 @@ LearnProfile LearnEngine::finish()
 
     if (b.pitchCount > 0.0)
         p.medianPitchHz = (float) (b.pitchSum / b.pitchCount);
+
+    // === Auto-trim al punto dulce ===
+    // Punto de operación objetivo: RMS -18 dBFS (picos vocales típicos a
+    // -6 dBFS -> el óptico con thr ~-11 dBFS de envolvente trabaja 2-6 dB
+    // de GR por etapa y el tanh del exciter genera armónicos reales).
+    // Clamp: -15 dB (señales ya calientes) a +18 dB (takes muy tenues; no
+    // amplificamos más para no levantar el piso de ruido de la toma).
+    // Requiere al menos 8 frames de voz (~90 ms) para no calibrar sobre
+    // una ráfaga aislada.
+    if (b.rmsFrames >= 8)
+    {
+        const double rmsDb = 10.0 * std::log10 (b.rmsSum
+                                    / ((double) b.rmsFrames * (double) kFftSize)
+                                    + 1e-12);
+        p.autoTrimDb = (float) juce::jlimit (-15.0, 18.0, -18.0 - rmsDb);
+    }
 
     lastReason.store (1, std::memory_order_relaxed);
     lastBodyEnergy.store (b.body, std::memory_order_relaxed);

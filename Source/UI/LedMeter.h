@@ -35,8 +35,9 @@ private:
     juce::String title { "IN" };
     LevelProvider provider;
 
-    float smooth[2] { -60.0f, -60.0f };
-    float peaks[2]  { -60.0f, -60.0f };
+    float smooth[2]  { -60.0f, -60.0f };
+    float readout[2] { -60.0f, -60.0f }; /* seguidor lento del número (estable) */
+    float peaks[2]   { -60.0f, -60.0f };
     int   peakTime[2] { 0, 0 };
     bool  compact = false;
 };

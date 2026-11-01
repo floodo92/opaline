@@ -53,6 +53,13 @@ void LedMeter::paint (juce::Graphics& g)
        "medido", que es decorativo. */
     if (compact)
     {
+        /* Limpia el frame anterior. El componente es opaque, así que JUCE NO
+           repinta el fondo por nosotros: sin este fill, cada frame dibuja el
+           texto encima del anterior y el número que cambia a 60 fps deja
+           estelas (valores superpuestos = borrón difuso). */
+        g.setColour (Colour (panel));
+        g.fillRect (bounds);
+
         float lvl[2] { 0.0f, 0.0f };
         if (provider)
         {
@@ -76,6 +83,11 @@ void LedMeter::paint (juce::Graphics& g)
         {
             const float t = levelToDb (lvl[i]);
             smooth[i] += (t - smooth[i]) * (t > smooth[i] ? 0.55f : 0.12f);
+            /* El número lleva su propio seguidor, más lento que la barra: a
+               60 fps el valor de 1 decimal cambiaba casi cada frame y "hervía"
+               (se veía borroso). La barra sigue rápida; el número, legible. */
+            readout[i] += (smooth[i] - readout[i])
+                        * (smooth[i] > readout[i] ? 0.40f : 0.035f);
             const float db = smooth[i];
             const float y  = rowY[i];
 
@@ -110,17 +122,22 @@ void LedMeter::paint (juce::Graphics& g)
         for (float dx : { 0.0f, 14.0f, 29.0f, 44.0f, 57.0f })
             g.fillRect (trackX + dx, 66.0f, 1.0f, 4.0f);
 
-        /* Readout de dB por canal */
+        /* Readout de dB por canal (número suavizado, no el de la barra).
+           Etiqueta y valor con ancla FIJA: la etiqueta a la izquierda y el
+           valor en una columna fija, ambos en Mono tabular, para que el
+           número no se desplace mientras cambia (evita parpadeo/subpixel). */
         g.setFont (font ({ FontId::Mono, 10.0f, 0.0f, false, false, 400 }));
         g.setColour (Colour (textMid));
         for (int i = 0; i < 2; ++i)
         {
-            const float db = smooth[i];
-            const juce::String txt = labels[i] + " "
-                + (db <= DB_MIN
-                       ? juce::String ("-") + juce::String::charToString ((juce::juce_wchar) 0x221E)
-                       : juce::String (db, 1));
-            g.drawText (txt, 0, (int) (76 + i * 12), 72, 12,
+            const float db = readout[i];
+            const juce::String val = db <= DB_MIN
+                ? juce::String ("-") + juce::String::charToString ((juce::juce_wchar) 0x221E)
+                : juce::String (db, 1);
+            const int y = (int) (76 + i * 12);
+            g.drawText (labels[i], 0, y, 12, 12,
+                        juce::Justification::centredLeft, false);
+            g.drawText (val, 14, y, 58, 12,
                         juce::Justification::centredLeft, false);
         }
         return;

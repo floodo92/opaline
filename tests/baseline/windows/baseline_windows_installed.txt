@@ -1,0 +1,44 @@
+GAUNTLET - informe de pruebas extremas
+Fecha: 1 Nov 2026 12:51
+SR base: 48000  Bloque base: 512  Seed: 20260918  Strict: si
+
+================================================================
+C:\Program Files\Common Files\VST3\Opaline.vst3
+================================================================
+  RUN  LOAD_SMOKE
+  PASS  LOAD_SMOKE  Opaline 1.0.1 [VST3] in=2 out=2 params=4 latency=10 tail=0.00s
+  RUN  TORTURE_AUTOMATION
+  PASS  TORTURE_AUTOMATION  1000000 cambios de parametro en 3.3s (250000 bloques), max|y|=9.6 dBFS
+  RUN  EXTREME_SWEEP
+  PASS  EXTREME_SWEEP  4 params barridos, max|y|=6.6 dBFS
+  RUN  DC_OFFSET
+  PASS  DC_OFFSET  DC=-159.3 dBFS
+  RUN  NUMERIC_SANITIZE
+  PASS  NUMERIC_SANITIZE  recuperado tras 1 bloques limpios
+  RUN  GAIN_STAGING
+  PASS  GAIN_STAGING  sobrevive +30 dBFS, max|y|=7.2 dBFS
+  RUN  IMPULSE_RESPONSE
+  PASS  IMPULSE_RESPONSE  max|y|=0.7 dBFS, decae a -100 dBFS en 21.3333 ms
+  RUN  DENORMAL_SILENCE
+  PASS  DENORMAL_SILENCE  silencio/ruido=0.94x, decae limpio
+  RUN  BLOCK_SIZE_MATRIX
+  PASS  BLOCK_SIZE_MATRIX  36 combinaciones SR/BLOCK estables
+  RUN  CHANNEL_LAYOUTS
+  PASS  CHANNEL_LAYOUTS  acepta: stereo/stereo, mono/mono, mono/stereo, stereo/mono
+  RUN  LATENCY_STABILITY
+  PASS  LATENCY_STABILITY  latencia=10 muestras (0.21 ms), tail=0.00s
+  RUN  STATE_ROUNDTRIP
+  PASS  STATE_ROUNDTRIP  376 bytes, roundtrip exacto, resiste estado basura
+  RUN  CREATE_DESTROY
+  PASS  CREATE_DESTROY  150 ciclos en 1.71s
+  RUN  PERF_BUDGET
+  PASS  PERF_BUDGET  CPU=0.3% de un core en tiempo real (8.0 us/bloque)
+  RUN  ALIASING_FLOOR
+  FAIL  ALIASING_FLOOR  peor caso '12k/solo:Shine': -59.6 dB (pico 20099.9 Hz) en 18 medidas (12k/15k) | peores: 12k/solo:Shine=-59.6 12k/max=-60.1 12k/rnd3=-61.5 12k/rnd2=-61.8 15k/solo:Shine=-86.8 (> -60 dB)
+  RUN  CLICK_HUNT
+  PASS  CLICK_HUNT  0 clics en 4 escenarios (steady/bypass/knobs/silencio), residuo en silencio -240.0 dBFS
+
+  RESULTADO: FAIL  [15 pass, 0 warn, 1 fail, 0 skip]  en 6.4 s
+
+================================================================
+GLOBAL: 1 FAIL, 0 WARN

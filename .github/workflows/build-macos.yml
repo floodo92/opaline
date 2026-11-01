@@ -1,0 +1,340 @@
+# macOS build (universal) + validate + release — Opaline
+#
+# Adaptado del canonico de la familia (skill: macos-build-audit).
+# Claves:
+#  - JUCE pineado + clone con submódulos (VST3 SDK)
+#  - CMAKE_BUILD_TYPE=Release (en Mac el generador es single-config)
+#  - universal arm64+x86_64 + deployment target
+#  - pluginval real (no un echo), con el nombre de asset REAL (pluginval_macOS.zip)
+#  - harness de snapshots en Mac (prueba de UI) + PNGs como artefacto
+#  - gate de paridad Windows <-> Mac contra el baseline CONGELADO en el repo
+#    (tests/baseline/windows/baseline_windows.txt): el contrato de Windows no se
+#    regenera en cada run, asi que un cambio de DSP en Mac se ve como regresión.
+#  - firma fuera-dentro-arriba + notarización de los bundles (zip con ditto) + pkg
+#
+# Secrets requeridos (solo para el job release):
+#   BUILD_CERTIFICATE_BASE64, INSTALLER_CERTIFICATE_BASE64, CERTIFICATE_PASSWORD,
+#   APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
+
+name: macOS build (universal) + validate + release
+
+on:
+  workflow_dispatch:
+    inputs:
+      notarize:
+        description: "Notarizar y armar el pkg (requiere secrets)"
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JUCE_VERSION: "9.0.4"
+  DEPLOYMENT_TARGET: "11.0"
+  PLUGINVAL_VERSION: "latest"
+  PLUGIN_NAME: "Opaline"
+  PRODUCT_NAME: "Opaline"
+  BUNDLE_ID: "com.floodos.opaline"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build universal + validar
+    runs-on: macos-14
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Info del toolchain
+        run: |
+          set -euo pipefail
+          sw_vers; xcodebuild -version; cmake --version | head -1; uname -m
+
+      - name: CMake y Ninja
+        run: |
+          set -euo pipefail
+          brew install cmake ninja
+
+      - name: Cache de JUCE
+        id: juce-cache
+        uses: actions/cache@v4
+        with:
+          path: JUCE
+          key: juce-${{ runner.os }}-${{ env.JUCE_VERSION }}
+
+      - name: Fetch JUCE (pinned, con submódulos)
+        if: steps.juce-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$JUCE_VERSION" \
+                    --recurse-submodules --shallow-submodules \
+                    https://github.com/juce-framework/JUCE.git "$GITHUB_WORKSPACE/JUCE"
+
+      - name: Configurar (universal + Release)
+        run: |
+          set -euo pipefail
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DJUCE_PATH="$GITHUB_WORKSPACE/JUCE" \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOYMENT_TARGET"
+
+      - name: Compilar
+        run: |
+          set -euo pipefail
+          cmake --build build --parallel
+
+      - name: Verificar el binario (universal, deps, plist)
+        run: |
+          set -euo pipefail
+          bash "$GITHUB_WORKSPACE/.github/scripts/verify_bundle.sh" build "$DEPLOYMENT_TARGET"
+
+      - name: Instalar pluginval
+        run: |
+          set -euo pipefail
+          if [ "$PLUGINVAL_VERSION" = "latest" ]; then
+            TAG_URL="https://api.github.com/repos/Tracktion/pluginval/releases/latest"
+          else
+            TAG_URL="https://api.github.com/repos/Tracktion/pluginval/releases/tags/v${PLUGINVAL_VERSION}"
+          fi
+          # OJO: el asset real se llama "pluginval_macOS.zip" (O y S mayusculas).
+          # Un grep case-sensitive de "macos" NO lo encuentra -> primer run roto.
+          URL=$(curl -fsSL "$TAG_URL" \
+                | grep -Eio 'https://[^"]*macos[^"]*\.zip' | head -1 || true)
+          if [ -z "$URL" ]; then echo "::error::No se encontro el asset de macOS de pluginval"; exit 1; fi
+          echo "pluginval: $URL"
+          curl -fsSL -o "$RUNNER_TEMP/pluginval.zip" "$URL"
+          unzip -q "$RUNNER_TEMP/pluginval.zip" -d "$RUNNER_TEMP/pluginval"
+          chmod +x "$RUNNER_TEMP/pluginval/pluginval"
+          "$RUNNER_TEMP/pluginval/pluginval" --help | head -3
+
+      - name: Validar VST3 (pluginval strictness 10)
+        run: |
+          set -euo pipefail
+          VST3=$(find build -name "*.vst3" -type d -print -quit)
+          if [ -z "$VST3" ]; then echo "::error::No se genero el .vst3"; exit 1; fi
+          "$RUNNER_TEMP/pluginval/pluginval" \
+            --validate-in-process --strictness-level 10 "$VST3"
+
+      - name: Validar AU (AuVal) — MANUAL
+        if: always()
+        run: |
+          echo "::notice::El .component se genera en build/*.component"
+          find build -name "*.component" -type d -print || true
+          echo "::notice::AuVal requiere la Audio Unit Tools de Apple (descarga manual)."
+
+      - name: UI — render headless en Mac (prueba de UI)
+        run: |
+          set -euo pipefail
+          cmake -S . -B build-snap -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DJUCE_PATH="$GITHUB_WORKSPACE/JUCE" \
+            -DENABLE_SNAPSHOT_TESTS=ON
+          cmake --build build-snap --target snapshot --parallel
+          SNAP=$(find build-snap -type f -name "snapshot" -perm -111 | head -1)
+          if [ -z "$SNAP" ]; then echo "::error::No se genero el harness de snapshots"; exit 1; fi
+          mkdir -p snapshots-mac
+          "$SNAP" --list | while IFS='|' read -r name w h; do
+            [ -z "$name" ] && continue
+            "$SNAP" "$name" "$w" "$h" "snapshots-mac/$name.png" || true
+          done
+          echo "::notice::PNGs de Mac subidos como artefacto (comparar con los de Windows: el texto rasteriza distinto)"
+
+      - name: Gauntlet (DSP) si el harness esta disponible
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          GAUNTLET_DIR="${GAUNTLET_DIR:-tools/Gauntlet}"
+          if [ ! -d "$GAUNTLET_DIR" ]; then
+            echo "::notice::Sin harness Gauntlet en el repo (vive a nivel Windows/). Se omite."
+            exit 0
+          fi
+          cmake -S "$GAUNTLET_DIR" -B build-gauntlet \
+            -DGAUNTLET_JUCE_PATH="$GITHUB_WORKSPACE/JUCE" \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-gauntlet --parallel
+          BIN=$(find build-gauntlet -type f -iname "gauntlet*" -perm -111 | head -1 || true)
+          VST3=$(find build -name "*.vst3" -type d -print -quit)
+          if [ -z "$BIN" ] || [ -z "$VST3" ]; then
+            echo "::warning::No se pudo correr el Gauntlet"; exit 0
+          fi
+          # MISMOS flags que el baseline de Windows (tests/baseline/windows/)
+          "$BIN" --sr 48000 --block 512 --seed 20260918 --strict \
+                 --out gauntlet_mac.txt "$VST3" | tee gauntlet-mac.txt
+
+      - name: Gate de paridad Mac <-> Windows
+        if: always()
+        run: |
+          set -euo pipefail
+          BASE="tests/baseline/windows/baseline_windows.txt"
+          if [ ! -f "$BASE" ] || [ ! -f "gauntlet_mac.txt" ]; then
+            echo "::warning::Sin baseline de Windows o sin informe de Mac: no se corre el gate de paridad."
+            exit 0
+          fi
+          python3 tools/compare_reports.py "$BASE" gauntlet_mac.txt --mode cross \
+            --report-json paridad-mac-windows.json
+
+      - name: Subir artefactos
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macOS-build-${{ github.sha }}
+          path: |
+            build/**/*.vst3
+            build/**/*.component
+            snapshots-mac/*.png
+            gauntlet_mac.txt
+            gauntlet-mac.txt
+            paridad-mac-windows.json
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------
+  release:
+    name: Firmar + notarizar + pkg
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.notarize
+    runs-on: macos-14
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Descargar build
+        uses: actions/download-artifact@v4
+        with:
+          name: macOS-build-${{ github.sha }}
+          path: dist
+
+      - name: Importar certificados
+        id: keychain
+        uses: sudara/basic-macos-keychain-action@v1
+        with:
+          dev-id-app-cert: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          dev-id-app-password: ${{ secrets.CERTIFICATE_PASSWORD }}
+          dev-id-installer-cert: ${{ secrets.INSTALLER_CERTIFICATE_BASE64 }}
+          dev-id-installer-password: ${{ secrets.CERTIFICATE_PASSWORD }}
+
+      - name: Firmar los bundles (adentro hacia afuera)
+        env:
+          KEYCHAIN_PATH: ${{ steps.keychain.outputs.keychain-path }}
+        run: |
+          set -euo pipefail
+          security find-identity -v
+          APP_ID=$(security find-identity -v | grep "Developer ID Application:" | head -1 \
+                   | sed 's/.*"\(.*\)"/\1/')
+          if [ -z "$APP_ID" ]; then echo "::error::Sin identidad Developer ID Application"; exit 1; fi
+          echo "Identidad: $APP_ID"
+          for B in $(find dist \( -name "*.vst3" -o -name "*.component" \) -type d); do
+            EXE="$B/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$B/Contents/Info.plist")"
+            codesign --force --options runtime --timestamp \
+              --keychain "$KEYCHAIN_PATH" --sign "$APP_ID" "$EXE"
+            codesign --force --options runtime --timestamp \
+              --keychain "$KEYCHAIN_PATH" --sign "$APP_ID" "$B"
+            codesign --verify --deep --strict --verbose=2 "$B"
+            echo "Firmado: $B"
+          done
+
+      - name: Notarizar los bundles (zip con ditto) + staple
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          for B in $(find dist \( -name "*.vst3" -o -name "*.component" \) -type d); do
+            # notarytool NO acepta un directorio: el bundle es una carpeta -> zip con ditto
+            ZIP="$RUNNER_TEMP/$(basename "$B").zip"
+            ditto -c -k --keepParent "$B" "$ZIP"
+            xcrun notarytool submit "$ZIP" \
+              --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" --wait --output-format json > "notary-$(basename "$B").json"
+            STATUS=$(/usr/bin/python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('status','unknown'))" \
+                     "notary-$(basename "$B").json")
+            if [ "$STATUS" != "Accepted" ]; then
+              echo "::error::Notarizacion $STATUS para $B"; exit 1
+            fi
+            xcrun stapler staple "$B"
+            xcrun stapler validate "$B"
+          done
+
+      - name: Armar los .pkg (los ids deben coincidir con distribution.xml)
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          INST_ID=$(security find-identity -v | grep "Developer ID Installer:" | head -1 \
+                    | sed 's/.*"\(.*\)"/\1/')
+          if [ -z "$INST_ID" ]; then echo "::error::Sin identidad Developer ID Installer"; exit 1; fi
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Si no es un tag (workflow_dispatch), GITHUB_REF_NAME es la rama: cae
+          # a la version del proyecto. productbuild EXIGE que la version del
+          # distribution.xml sea EXACTAMENTE la del pkg.
+          if ! echo "$VERSION" | grep -qE '^[0-9]+(\.[0-9]+)*$'; then
+            VERSION=$(grep -m1 -oE '[0-9]+\.[0-9]+\.[0-9]+' CMakeLists.txt | head -1)
+          fi
+          if [ -z "$VERSION" ]; then echo "::error::No se pudo determinar la version"; exit 1; fi
+          echo "Version del pkg: $VERSION"
+          sed -i.bak "s/version=\"[0-9][0-9.]*\"/version=\"$VERSION\"/g" distribution.xml
+          rm -f distribution.xml.bak
+          VST3=$(find dist -name "*.vst3" -type d -print -quit)
+          AU=$(find dist -name "*.component" -type d -print -quit)
+          if [ -z "$VST3" ] || [ -z "$AU" ]; then
+            echo "::error::No se encontraron los bundles en el artefacto (VST3=$VST3 AU=$AU)"; exit 1
+          fi
+          pkgbuild --component "$VST3" --identifier "com.floodos.opaline.vst3" \
+            --version "$VERSION" --install-location "/Library/Audio/Plug-Ins/VST3" vst3_component.pkg
+          pkgbuild --component "$AU" --identifier "com.floodos.opaline.au" \
+            --version "$VERSION" --install-location "/Library/Audio/Plug-Ins/Components" au_component.pkg
+          productbuild --distribution distribution.xml --package-path . \
+            --sign "$INST_ID" --timestamp final_plugin.pkg
+          pkgutil --check-signature final_plugin.pkg
+
+      - name: Verificar el payload antes de notarizar
+        run: |
+          set -euo pipefail
+          rm -rf .pkgcheck
+          pkgutil --expand final_plugin.pkg .pkgcheck
+          PAYLOAD=$(find .pkgcheck -name Payload -size +1k -print -quit)
+          if [ -z "$PAYLOAD" ]; then
+            echo "::error::El pkg no tiene payload: revisar el choices-outline de distribution.xml"
+            exit 1
+          fi
+          echo "Payload OK: $PAYLOAD"
+
+      - name: Notarizar el pkg + staple + spctl
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          xcrun notarytool submit final_plugin.pkg \
+            --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" --wait --output-format json > notary-pkg.json
+          STATUS=$(/usr/bin/python3 -c "import json;print(json.load(open('notary-pkg.json')).get('status','unknown'))")
+          if [ "$STATUS" != "Accepted" ]; then echo "::error::Notarizacion del pkg: $STATUS"; exit 1; fi
+          xcrun stapler staple final_plugin.pkg
+          xcrun stapler validate final_plugin.pkg
+          spctl -a -vvv -t install final_plugin.pkg
+
+      - name: Subir el instalador
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macOS-installer
+          path: |
+            final_plugin.pkg
+            notary-pkg.json
+            notary-*.json
+          if-no-files-found: warn

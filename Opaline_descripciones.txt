@@ -1,0 +1,218 @@
+OPALINE — Vocal Polish · Floodo's Audio Labs (serie free)
+Descripciones para tienda y notas técnicas. Español e inglés.
+================================================================
+
+
+################################################################
+# TIENDA — ESPAÑOL
+################################################################
+
+OPALINE — Vocal Polish
+Floodo's Audio Labs · serie free
+
+Una perilla. Esa es toda la idea.
+
+Opaline es un pulidor vocal diseñado para llevar una voz sin procesar
+directamente a sonido de disco: brillante, pegajosa y presente, sin que
+tengas que pensar en cadenas de diez plugins. Gira SHINE y escucha cómo
+la voz se abre, gana aire y se asienta en el frente de la mezcla — igual
+que los polishes vocales de los discos de pop que escuchás todos los días.
+
+De abajo hacia arriba, el motor trabaja donde importa: limpia lo que
+estorba (rumble, sibilancia, resonancias), estabiliza la dinámica como un
+compresor óptico de dos etapas, y luego agrega el brillo "sedoso" con
+saturación de cinta y armónicos generados con oversampling — sin la
+aspereza digital de los exciters baratos.
+
+¿Y si tu voz no es como la de la demo? Para eso existe MEASURE: apretalo
+mientras la voz canta unos segundos y Opaline se calibra a ESA voz — su
+tono grave, su "S" particular, su exceso de agudos. El filtro pasa-altos
+se adapta al fundamental de la voz real para nunca comerse el cuerpo de
+un barítono.
+
+- One-knob vocal polish: SHINE controla toda la cadena con una curva
+  musical y monótona
+- BODY / AIR: equilibrio entre calidez de la voz y brillo en agudos
+- MEASURE (Learn): calibración automática a la voz concreta
+- Latencia reportada: el DAW compensa, cero sorpresas en la línea de tiempo
+- Meters IN/OUT con bypass de conmutación continua, sin clicks
+
+Gratis. Como debe ser.
+
+
+################################################################
+# TIENDA — ENGLISH
+################################################################
+
+OPALINE — Vocal Polish
+Floodo's Audio Labs · free series
+
+One knob. That's the whole idea.
+
+Opaline is a vocal polisher designed to take an unprocessed vocal
+straight to record-ready sound: bright, glossy and upfront, without
+making you think about ten-plugin chains. Turn SHINE and hear the voice
+open up, gain air and sit at the front of the mix — the same vocal
+polish you hear on the pop records you listen to every day.
+
+From the bottom up, the engine works where it matters: it cleans up what
+gets in the way (rumble, sibilance, resonances), stabilizes dynamics like
+a two-stage optical compressor, then adds that "silky" brightness with
+tape saturation and oversampled harmonic generation — no digital
+harshness from cheap exciters.
+
+And what if your voice isn't like the one in the demo? That's what
+MEASURE is for: press it while the voice sings for a few seconds and
+Opaline calibrates itself to THAT voice — its low register, its
+particular "S", its excess of highs. The high-pass filter adapts to the
+real voice's fundamental so a baritone never loses body.
+
+- One-knob vocal polish: SHINE drives the whole chain with a musical,
+  monotonic curve
+- BODY / AIR: balance between vocal warmth and top-end sheen
+- MEASURE (Learn): automatic calibration to the specific voice
+- Reported latency: the DAW compensates, zero surprises in the timeline
+- IN/OUT meters with click-free, continuous bypass switching
+
+Free. As it should be.
+
+
+################################################################
+# NERDS — ESPAÑOL
+################################################################
+
+OPALINE — notas técnicas
+
+Polisher vocal monoparamétrico (VST3, JUCE nativo, sin WebView). El
+control SHINE (0-100) escala toda la cadena; internamente es un "amount"
+suavizado que modula thresholds, ratios y mixes por etapa. La topología,
+en orden:
+
+1. HPF adaptativo — frecuencia derivada del perfil del Learn:
+   clamp(medianPitchHz * 0.5, 40, 150) Hz. Siempre por debajo del
+   fundamental detectado; un barítono no pierde cuerpo como con un HPF
+   fijo de 85 Hz.
+
+2. De-esser de techo relativo — la "S" nunca supera el cuerpo (regla del
+   triángulo espectral: 500-1k son los protagonistas). Techo dinámico
+   por muestra: thr = envBody(500-1k) * 10^(ceilDb/20), con
+   ceilDb = -(0.35 + 2.2*amount) - 0.12*sibExcessDb (el exceso lo mide
+   el Learn). Referencia de cuerpo = banda 500-1k con envolvente lenta
+   10/300 ms linked (max L/R), ataque 1 ms — sin look-ahead, sin
+   latencia extra. Knee 2 dB, idle-bypass exacto (sin señal ->
+   d - banda + banda*1 = d).
+
+3. Compresor óptico en cascada de 2 pases — etapa A "leveler"
+   (thr 0.26 + 0.10*(1-amount), ratio 1+1.2*amount, 10/250 ms) y etapa B
+   "picos" (thr 0.32+..., ratio 1+1.0*amount, 5/150 ms). Ambas knee 6 dB,
+   detectores linked, estados de gain persistentes entre bloques
+   (sin zipper).
+
+4. Presence — pico fijo de 4 kHz, +1.5 dB * amount.
+
+5. Exciter armónico — banda >3 kHz (HP preparado a rate sobremuestreado),
+   tanh(3.2*x + bias) con bias = 0.10 (asimetría -> armónicos pares,
+   re-centrado DC exacto con -tanh(bias)), mezcla 0.55*amount en
+   paralelo dentro del dominio sobremuestreado. Oversampling 4x
+   (half-band polyphase IIR de JUCE, 2^2: exciter y tape en cascada):
+   el 3er armónico de 15 kHz plegaba a 900 Hz a rate base — medido a
+   -28 dB, hoy el piso de aliasing en peor caso es -59,9 dB @ 20,1 kHz
+   (por encima de audición).
+
+6. Tape glue final (modelo Studer A800 retuneado a voz, sin head bump):
+   pre-énfasis RBJ +2 dB @ 3,5k -> tanh(1.6*x)/1.6 normalizado a unity
+   -> de-énfasis; compresión por envolvente common-mode (L+R)/2 5/120 ms
+   hasta ~3,5 dB (laminado sin caminar el estéreo); DC blocker 1er orden
+   @ 20 Hz.
+
+7. Air shelf 12k + paralelo filtrado + soft-clip de salida — knee
+   C0-continua: y = x hasta -1.4 dBFS, start + range*tanh(over/range)
+   con asíntota 0 dBFS. Material normal intacto.
+
+MEASURE (Learn): estima medianPitchHz (alimenta el HPF), deEssFreq
+(centro del de-esser), airTargetDb y sibExcessDb (agudos y exceso
+relativos al cuerpo). Todo persiste en getStateInformation (376 bytes,
+roundtrip exacto).
+
+Latencia: 10 muestras a 48 kHz (0,21 ms) — exciter + tape en serie —
+reportada al host; el bypass interno usa un delay feed-forward del mismo
+tamaño, así el toggle wet<->bypass es continuo en el tiempo. Cero allocs
+en el hilo de audio. Validado: Gauntlet 16/16 (tortura de 1M cambios de
+parámetro, matriz SR/bloque, hunt de clicks, aliasing), pluginval
+strictness 10, CPU 0,3 % de un core.
+
+Detalles de implementación que duelen: los biquads son RBJ manuales
+porque dsp::IIR de JUCE 8.0.14 genera coeficientes degenerados a gain 0;
+el high-shelf del tape debe ser RBJ auténtico ((A+1)±(A-1)cos(w)) o los
+polos salen del círculo unitario y explota a NaN (~300 muestras a 3,5
+kHz, con |p| = 1.038).
+
+
+################################################################
+# NERDS — ENGLISH
+################################################################
+
+OPALINE — technical notes
+
+Single-parameter vocal polisher (VST3, native JUCE, no WebView). The
+SHINE control (0-100) drives the entire chain; internally it is a
+smoothed "amount" that modulates thresholds, ratios and per-stage mixes.
+Topology, in order:
+
+1. Adaptive HPF — frequency derived from the Learn profile:
+   clamp(medianPitchHz * 0.5, 40, 150) Hz. Always below the detected
+   fundamental; a baritone never loses body the way it would with a
+   fixed 85 Hz high-pass.
+
+2. Relative-ceiling de-esser — the "S" never exceeds the body (spectral
+   triangle rule: 500-1k are the protagonists). Per-sample dynamic
+   ceiling: thr = envBody(500-1k) * 10^(ceilDb/20), with
+   ceilDb = -(0.35 + 2.2*amount) - 0.12*sibExcessDb (the excess is
+   measured by the Learn). Body reference = 500-1k band with a slow
+   10/300 ms linked envelope (max L/R), 1 ms attack — no look-ahead, no
+   extra latency. 2 dB knee, exact idle-bypass (no signal ->
+   d - band + band*1 = d).
+
+3. Optical compressor, 2-pass cascade — stage A "leveler" (thr
+   0.26 + 0.10*(1-amount), ratio 1+1.2*amount, 10/250 ms) and stage B
+   "peaks" (thr 0.32+..., ratio 1+1.0*amount, 5/150 ms). Both 6 dB knee,
+   linked detectors, persistent gain states across blocks (no zipper).
+
+4. Presence — fixed 4 kHz bell, +1.5 dB * amount.
+
+5. Harmonic exciter — >3 kHz band (HP prepared at the oversampled
+   rate), tanh(3.2*x + bias) with bias = 0.10 (asymmetry -> even
+   harmonics, exact DC re-centering with -tanh(bias)), 0.55*amount mix
+   in parallel inside the oversampled domain. 4x oversampling (JUCE
+   half-band polyphase IIR, 2^2: exciter and tape cascaded): the 3rd
+   harmonic of a 15 kHz tone folded to 900 Hz at base rate — measured at
+   -28 dB; today the worst-case aliasing floor is -59.9 dB @ 20.1 kHz
+   (above the range of hearing).
+
+6. Final tape glue (voice-tuned Studer A800 model, no head bump): RBJ
+   pre-emphasis +2 dB @ 3.5k -> tanh(1.6*x)/1.6 normalized to unity ->
+   de-emphasis; compression via a common-mode (L+R)/2 envelope, 5/120 ms,
+   up to ~3.5 dB of gluing (no stereo image drift); first-order DC
+   blocker @ 20 Hz.
+
+7. 12k air shelf + filtered parallel + output soft-clip — C0-continuous
+   knee: y = x up to -1.4 dBFS, start + range*tanh(over/range) with a
+   0 dBFS asymptote. Normal material untouched.
+
+MEASURE (Learn): estimates medianPitchHz (feeds the HPF), deEssFreq
+(de-esser center), airTargetDb and sibExcessDb (highs and sibilance
+excess relative to the body). Everything persists via
+getStateInformation (376 bytes, exact roundtrip).
+
+Latency: 10 samples at 48 kHz (0.21 ms) — exciter + tape in series —
+reported to the host; the internal bypass uses a feed-forward delay of
+the same size, so the wet<->bypass toggle is time-continuous. Zero
+allocations on the audio thread. Validated: Gauntlet 16/16 (1M-change
+parameter torture, SR/block matrix, click hunt, aliasing), pluginval
+strictness 10, 0.3% of one CPU core.
+
+Implementation details that hurt: the biquads are hand-rolled RBJ
+because JUCE 8.0.14's dsp::IIR produces degenerate coefficients at zero
+gain; the tape high-shelf must be genuine RBJ ((A+1)±(A-1)cos(w)) or the
+poles leave the unit circle and it blows up to NaN (~300 samples at
+3.5 kHz, with |p| = 1.038).

@@ -87,6 +87,97 @@ REGISTER_COMPONENT_SIZED (OpalineFull, []{
     return h;
 }, 400, 460);
 
+// State activo de los botones del header (BYPASS verde cSafe en ON,
+// MEASURE encendido). El story OpalineFull mantiene ambos en reposo.
+REGISTER_COMPONENT_SIZED (OpalineButtonsOn, []{
+    auto h = std::make_unique<OpalineEditorHolder>();
+
+    h->proc   = std::make_unique<OpalineAudioProcessor>();
+    h->editor = std::unique_ptr<OpalineAudioProcessorEditor> (
+        static_cast<OpalineAudioProcessorEditor*> (h->proc->createEditor()));
+    h->addAndMakeVisible (h->editor.get());
+    h->editor->setSize (floodo::brand::canvasW, floodo::brand::canvasH);
+
+    if (auto* p = h->proc->apvts.getParameter ("shine"))
+        p->setValueNotifyingHost (p->convertTo0to1 (0.0f));
+    if (auto* p = h->proc->apvts.getParameter ("bodyair"))
+        p->setValueNotifyingHost (p->convertTo0to1 (0.0f));
+    if (auto* p = h->proc->apvts.getParameter ("output"))
+        p->setValueNotifyingHost (p->convertTo0to1 (70.0f));
+
+    // Enciende el toggle de BYPASS a través del APVTS (estado real del botón).
+    if (auto* p = h->proc->apvts.getParameter ("bypass"))
+        p->setValueNotifyingHost (p->convertTo0to1 (1.0f));
+
+    {
+        juce::Image warm (juce::Image::ARGB, 400, 460, true);
+        for (int i = 0; i < 30; ++i)
+        {
+            juce::Graphics g (warm);
+            h->paintEntireComponent (g, false);
+        }
+    }
+
+    return h;
+}, 400, 460);
+
+// Pista MONO (bus 1-in): valida que el meter R también se mueva (espejo L→R)
+// en vez de quedar muerto.
+REGISTER_COMPONENT_SIZED (OpalineMono, []{
+    auto h = std::make_unique<OpalineEditorHolder>();
+
+    h->proc = std::make_unique<OpalineAudioProcessor>();
+    h->proc->setPlayConfigDetails (1, 1, 48000.0, 512);
+    h->editor = std::unique_ptr<OpalineAudioProcessorEditor> (
+        static_cast<OpalineAudioProcessorEditor*> (h->proc->createEditor()));
+    h->addAndMakeVisible (h->editor.get());
+    h->editor->setSize (floodo::brand::canvasW, floodo::brand::canvasH);
+
+    if (auto* p = h->proc->apvts.getParameter ("shine"))
+        p->setValueNotifyingHost (p->convertTo0to1 (0.0f));
+    if (auto* p = h->proc->apvts.getParameter ("output"))
+        p->setValueNotifyingHost (p->convertTo0to1 (70.0f));
+
+    constexpr double sr = 48000.0;
+    constexpr int    bs = 512;
+    h->proc->prepareToPlay (sr, bs);
+
+    juce::AudioBuffer<float> buf (1, bs);
+    juce::MidiBuffer midi;
+    double phase = 0.0;
+    const double inc = juce::MathConstants<double>::twoPi * 220.0 / sr;
+    for (int blk = 0; blk < 80; ++blk)
+    {
+        for (int i = 0; i < bs; ++i)
+        {
+            buf.setSample (0, i, (float) (0.2 * std::sin (phase)));
+            phase += inc;
+        }
+        h->proc->processBlock (buf, midi);
+    }
+
+    {
+        juce::Image warm (juce::Image::ARGB, 400, 460, true);
+        for (int i = 0; i < 60; ++i)
+        {
+            juce::Graphics g (warm);
+            h->paintEntireComponent (g, false);
+        }
+    }
+
+    return h;
+}, 400, 460);
+// Probe de contrato opaque: el LedMeter compacto debe cubrir TODO su rect
+// (alpha=255) sobre una imagen transparente. Si deja huecos, en el DAW esos
+// huecos muestran los p�xeles del frame anterior -> ghosting del texto.
+REGISTER_COMPONENT_SIZED (MeterCompact, []{
+    auto m = std::make_unique<floodo::brand::LedMeter>();
+    m->setCompact (true);
+    m->setChannelLabels ("L", "R");
+    m->setLevelProvider ([]{ return std::make_pair (0.2f, 0.2f); });
+    return m;
+}, 72, 104);
+
 // Frame completo (one-knob) a la vista: sesión recall con "measured" persistido
 // (setStateInformation) revela el editor real; el gate de primera calibración
 // NO se muestra. Valores de partida del mockup (SHINE 0, BODY/AIR 0, OUTPUT
