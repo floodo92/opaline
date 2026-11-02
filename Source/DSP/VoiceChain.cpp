@@ -883,6 +883,6 @@ float VoiceChain::TapeStage::process (juce::AudioBuffer<float>& b, float amount)
             up.setSample (1, i, dryR + (xr - dryR) * amount);
     }
 
-    os->processSamplesDown (juce::dsp::AudioBlock<float> (b));
+    { juce::dsp::AudioBlock<float> portBlock (b); os->processSamplesDown (portBlock); }
     return (float) juce::jlimit (0.0, 1.0, (double) grMax);
 }
