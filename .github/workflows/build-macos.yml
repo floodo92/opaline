@@ -272,6 +272,74 @@ jobs:
           # y codesign --verify --deep --strict en verde.
           bash "$GITHUB_WORKSPACE/.github/scripts/verify_bundle.sh" dist "$DEPLOYMENT_TARGET" signed
 
+      - name: Determinar la version del pkg
+        id: ver
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Si no es un tag (workflow_dispatch), GITHUB_REF_NAME es la rama: cae
+          # a la version del proyecto. productbuild EXIGE que la version del
+          # distribution.xml sea EXACTAMENTE la del pkg.
+          if ! echo "$VERSION" | grep -qE '^[0-9]+(\.[0-9]+)*$'; then
+            VERSION=$(grep -m1 -oE '[0-9]+\.[0-9]+\.[0-9]+' CMakeLists.txt | head -1)
+          fi
+          if [ -z "$VERSION" ]; then echo "::error::No se pudo determinar la version"; exit 1; fi
+          echo "Version del pkg: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Validar el armado del pkg (NO gasta cuota de Apple)
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Este step hace TODO el armado (pkgbuild + productbuild + check de
+          # payload) SIN notarizar. Firmar NO consume cuota: solo 'notarytool
+          # submit' la consume. Va ANTES de la notarizacion a proposito: si el
+          # distribution.xml esta roto (E55), los ids no coinciden o el pkg
+          # sale sin payload, el run muere ACÁ, en 1 minuto, en vez de gastar
+          # 2 notarizaciones de Apple para descubrirlo.
+          INST_ID=$(security find-identity -v | grep "Developer ID Installer:" | head -1 \
+                    | sed 's/.*"\(.*\)"/\1/')
+          if [ -z "$INST_ID" ]; then echo "::error::Sin identidad Developer ID Installer"; exit 1; fi
+          # OJO: el sed tiene que estar RESTRINGIDO a las lineas con pkg-ref.
+          # Un sed global tambien cambia la DECLARACION XML de la linea 1:
+          #   <?xml version="1.0" ...?>  ->  <?xml version="1.0.1" ...?>
+          # y productbuild deja de poder leer el archivo:
+          #   "Could not read distribution.xml (Line 1: String not closed)"
+          sed -i.bak "/pkg-ref/s/version=\"[0-9][0-9.]*\"/version=\"$VERSION\"/g" distribution.xml
+          rm -f distribution.xml.bak
+          # fail-fast: si el XML quedo corrupto, que lo diga ACA y no 2 steps
+          # mas tarde con un error de productbuild.
+          if ! grep -q '^<?xml version="1\.0"' distribution.xml; then
+            echo "::error::distribution.xml quedo corrupto al cambiar la version"
+            head -3 distribution.xml
+            exit 1
+          fi
+          if command -v xmllint >/dev/null 2>&1; then
+            xmllint --noout distribution.xml || { echo "::error::distribution.xml no es XML valido"; exit 1; }
+          fi
+          VST3=$(find dist -name "*.vst3" -type d -print -quit)
+          AU=$(find dist -name "*.component" -type d -print -quit)
+          if [ -z "$VST3" ] || [ -z "$AU" ]; then
+            echo "::error::No se encontraron los bundles en el artefacto (VST3=$VST3 AU=$AU)"; exit 1
+          fi
+          pkgbuild --component "$VST3" --identifier "com.floodos.opaline.vst3" \
+            --version "$VERSION" --install-location "/Library/Audio/Plug-Ins/VST3" vst3_component.pkg
+          pkgbuild --component "$AU" --identifier "com.floodos.opaline.au" \
+            --version "$VERSION" --install-location "/Library/Audio/Plug-Ins/Components" au_component.pkg
+          productbuild --distribution distribution.xml --package-path . \
+            --sign "$INST_ID" --timestamp precheck.pkg
+          pkgutil --check-signature precheck.pkg
+          rm -rf .pkgprecheck
+          pkgutil --expand precheck.pkg .pkgprecheck
+          PAYLOAD=$(find .pkgprecheck -name Payload -size +1k -print -quit)
+          if [ -z "$PAYLOAD" ]; then
+            echo "::error::El pkg de prueba no tiene payload: revisar el choices-outline de distribution.xml"
+            exit 1
+          fi
+          echo "::notice::Armado del pkg validado (sin gastar cuota). Payload: $PAYLOAD"
+          rm -rf .pkgprecheck precheck.pkg
+
       - name: Notarizar los bundles (zip con ditto) + staple
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -295,40 +363,15 @@ jobs:
             xcrun stapler validate "$B"
           done
 
-      - name: Armar los .pkg (los ids deben coincidir con distribution.xml)
+      - name: Armar el .pkg final (con los bundles ya notificados y sellados)
         env:
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
           INST_ID=$(security find-identity -v | grep "Developer ID Installer:" | head -1 \
                     | sed 's/.*"\(.*\)"/\1/')
           if [ -z "$INST_ID" ]; then echo "::error::Sin identidad Developer ID Installer"; exit 1; fi
-          VERSION="${GITHUB_REF_NAME#v}"
-          # Si no es un tag (workflow_dispatch), GITHUB_REF_NAME es la rama: cae
-          # a la version del proyecto. productbuild EXIGE que la version del
-          # distribution.xml sea EXACTAMENTE la del pkg.
-          if ! echo "$VERSION" | grep -qE '^[0-9]+(\.[0-9]+)*$'; then
-            VERSION=$(grep -m1 -oE '[0-9]+\.[0-9]+\.[0-9]+' CMakeLists.txt | head -1)
-          fi
-          if [ -z "$VERSION" ]; then echo "::error::No se pudo determinar la version"; exit 1; fi
-          echo "Version del pkg: $VERSION"
-          # OJO: el sed tiene que estar RESTRINGIDO a las lineas con pkg-ref.
-          # Un sed global tambien cambia la DECLARACION XML de la linea 1:
-          #   <?xml version="1.0" ...?>  ->  <?xml version="1.0.1" ...?>
-          # y productbuild deja de poder leer el archivo:
-          #   "Could not read distribution.xml (Line 1: String not closed)"
-          sed -i.bak "/pkg-ref/s/version=\"[0-9][0-9.]*\"/version=\"$VERSION\"/g" distribution.xml
-          rm -f distribution.xml.bak
-          # fail-fast: si el XML quedo corrupto, que lo diga ACA y no 2 steps
-          # mas tarde con un error de productbuild.
-          if ! grep -q '^<?xml version="1\.0"' distribution.xml; then
-            echo "::error::distribution.xml quedo corrupto al cambiar la version"
-            head -3 distribution.xml
-            exit 1
-          fi
-          if command -v xmllint >/dev/null 2>&1; then
-            xmllint --noout distribution.xml || { echo "::error::distribution.xml no es XML valido"; exit 1; }
-          fi
           VST3=$(find dist -name "*.vst3" -type d -print -quit)
           AU=$(find dist -name "*.component" -type d -print -quit)
           if [ -z "$VST3" ] || [ -z "$AU" ]; then
