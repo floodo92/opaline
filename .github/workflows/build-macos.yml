@@ -31,7 +31,12 @@ on:
   pull_request:
 
 concurrency:
-  group: macos-${{ github.ref }}
+  # El evento va en el grupo: sin esto, un 'push' a main CANCELA el run de
+  # workflow_dispatch que esta firmando y notarizando (mismo github.ref,
+  # cancel-in-progress: true). Eso destruye una notarizacion de Apple a
+  # mitad de camino. Con el evento en el grupo, cada tipo de run cancela
+  # solo a los de su mismo tipo.
+  group: macos-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 env:
