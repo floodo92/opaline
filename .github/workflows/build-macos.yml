@@ -96,7 +96,10 @@ jobs:
       - name: Verificar el binario (universal, deps, plist)
         run: |
           set -euo pipefail
-          bash "$GITHUB_WORKSPACE/.github/scripts/verify_bundle.sh" build "$DEPLOYMENT_TARGET"
+          # modo "unsigned": en este job el bundle todavia NO esta firmado
+          # (la firma pasa en el job release). Exigir la firma aqui daba 2
+          # falsos positivos garantizados en cada run.
+          bash "$GITHUB_WORKSPACE/.github/scripts/verify_bundle.sh" build "$DEPLOYMENT_TARGET" unsigned
 
       - name: Instalar pluginval
         run: |
@@ -244,6 +247,13 @@ jobs:
             codesign --verify --deep --strict --verbose=2 "$B"
             echo "Firmado: $B"
           done
+
+      - name: Verificar los bundles YA firmados (modo signed)
+        run: |
+          set -euo pipefail
+          # modo "signed": aqui la firma TIENE que existir, con hardened runtime
+          # y codesign --verify --deep --strict en verde.
+          bash "$GITHUB_WORKSPACE/.github/scripts/verify_bundle.sh" dist "$DEPLOYMENT_TARGET" signed
 
       - name: Notarizar los bundles (zip con ditto) + staple
         env:

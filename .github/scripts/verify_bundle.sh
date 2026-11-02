@@ -2,9 +2,22 @@
 # =============================================================================
 #  verify_bundle.sh — verifica el binario de macOS (Fase 2 / G6)
 #
-#  Uso: bash verify_bundle.sh [build-dir] [deployment-target]
+#  Uso: bash verify_bundle.sh [build-dir] [deployment-target] [modo]
 #   build-dir: dondecmake dejo los bundles (default: build)
 #   deployment-target: minimo de macOS esperado (default: 11.0)
+#   modo: "unsigned" (default) = verificacion PRE-firma (job build)
+#         "signed"            = verificacion POST-firma (job release)
+#
+#  POR QUE EL MODO EXISTE:
+#  En un binario UNIVERSAL, 'otool -L' imprime DOS bloques (uno por
+#  arquitectura) y cada bloque arranca con la RUTA DEL BINARIO como titulo.
+#  Con 'tail -n +2' solo se quita el titulo del PRIMER bloque: el titulo del
+#  segundo bloque queda y se reporta como "dependencia externa" (FALSO POSITIVO).
+#
+#  Ademas, en el job BUILD el binario todavia NO esta firmado (la firma pasa
+#  en el job RELEASE). Exigir alli 'hardened runtime' y 'codesign --verify'
+#  produce 2 FALSO POSITIVOS garantizados. Con modo "unsigned" esos dos checks
+#  son WARN; con modo "signed" son FAIL de verdad.
 #
 #  Exit: 0 = todo OK, 1 = hay FAIL
 #  Compatible con bash 3.2 (macOS). Solo usa herramientas del sistema.
@@ -13,6 +26,12 @@ set -uo pipefail
 
 BUILD="${1:-build}"
 DEPLOY="${2:-11.0}"
+MODE="${3:-unsigned}"
+
+case "$MODE" in
+    unsigned|signed) ;;
+    *) echo "::error::modo invalido '$MODE' (usa 'unsigned' o 'signed')"; exit 2 ;;
+esac
 
 FAIL=0
 PASS=0
@@ -24,7 +43,7 @@ emit() { # severity label detalle
 }
 
 echo "================================================================"
-echo " Verificacion del binario macOS — dir: $BUILD"
+echo " Verificacion del binario macOS — dir: $BUILD  (modo: $MODE)"
 echo "================================================================"
 
 if [ ! -d "$BUILD" ]; then
@@ -108,33 +127,71 @@ for B in $BUNDLES; do
     fi
 
     # --- Dependencias -----------------------------------------------------
+    # 'otool -L' en un binario universal imprime un bloque por arquitectura:
+    #   <ruta-del-binario> (architecture x86_64):
+    #       /usr/lib/...
+    #   <ruta-del-binario> (architecture arm64):
+    #       /usr/lib/...
+    # Los titulos de bloque NO son dependencias. 'tail -n +2' solo quita el
+    # primero -> el segundo titulo se cuela como dependencia FALSA.
+    # La forma correcta: quedarse SOLO con las lineas INDENTADAS (las deps).
     if command -v otool >/dev/null 2>&1; then
-        BAD=$(otool -L "$EXE" 2>/dev/null | tail -n +2 | awk '{print $1}' \
+        DEPS=$(otool -L "$EXE" 2>/dev/null | grep -E '^[[:space:]]' | awk '{print $1}' || true)
+        BAD=$(printf '%s\n' "$DEPS" \
               | grep -vE '^(/usr/lib/|/System/|@rpath/|@executable_path/)' || true)
         if [ -z "$BAD" ]; then
-            emit PASS "todas las dependencias son del sistema"
+            emit PASS "todas las dependencias son del sistema o relativas al bundle"
         else
             emit FAIL "dependencias externas (rompen Gatekeeper o no existen en la maquina del usuario)" "$BAD"
+        fi
+        # Un '@rpath/...' tiene que existir DENTRO del bundle: si no, el
+        # plugin no abre en la maquina del usuario (aunque compile bien).
+        RPATH_MISSING=""
+        for d in $DEPS; do
+            case "$d" in
+                @rpath/*)
+                    LEAF="${d#@rpath/}"
+                    if [ ! -e "$B/Contents/Frameworks/$LEAF" ] && [ ! -e "$B/Contents/MacOS/$LEAF" ]; then
+                        RPATH_MISSING="$RPATH_MISSING$d\n"
+                    fi
+                    ;;
+            esac
+        done
+        if [ -n "$RPATH_MISSING" ]; then
+            emit FAIL "dependencias @rpath que NO existen dentro del bundle" "$RPATH_MISSING"
+        elif printf '%s\n' "$DEPS" | grep -q '@rpath/'; then
+            emit PASS "las dependencias @rpath existen dentro del bundle"
         fi
     fi
 
     # --- Firma ------------------------------------------------------------
+    # Modo "unsigned" (job build): la firma todavia no existe. Serian 2
+    # FALSOS POSITIVOS garantizados. Solo se informa.
+    # Modo "signed" (job release): aqui SI tiene que estar firmado.
     if codesign -dv "$B" >/dev/null 2>&1; then
         SIGINFO=$(codesign -dv --verbose=2 "$B" 2>&1 || true)
         if printf '%s\n' "$SIGINFO" | grep -q 'flags=.*runtime'; then
             emit PASS "firmado con hardened runtime (requisito de notarizacion)"
-        else
+        elif [ "$MODE" = "signed" ]; then
             emit FAIL "firmado SIN hardened runtime (--options runtime): Apple no lo va a notarizar" \
+                 "$(printf '%s\n' "$SIGINFO" | grep -E '^(Identifier|TeamIdentifier|flags)' || true)"
+        else
+            emit WARN "sin hardened runtime todavia (esperado: la firma pasa en el job release)" \
                  "$(printf '%s\n' "$SIGINFO" | grep -E '^(Identifier|TeamIdentifier|flags)' || true)"
         fi
         if codesign --verify --deep --strict --verbose=2 "$B" >/dev/null 2>&1; then
             emit PASS "codesign --verify --deep --strict OK"
-        else
+        elif [ "$MODE" = "signed" ]; then
             emit FAIL "codesign --verify --deep --strict fallo" \
                  "$(codesign --verify --deep --strict --verbose=2 "$B" 2>&1 | head -5)"
+        else
+            emit WARN "codesign --verify todavia no aplica (el bundle se firma en el job release)" \
+                 "$(codesign --verify --deep --strict --verbose=2 "$B" 2>&1 | head -3)"
         fi
+    elif [ "$MODE" = "signed" ]; then
+        emit FAIL "el bundle NO esta firmado (modo signed: la firma tiene que existir)" ""
     else
-        emit WARN "sin firma (esperado en un build de CI sin secrets)" ""
+        emit WARN "sin firma (esperado en el job build: la firma pasa en el job release)" ""
     fi
 
     # --- Ticket de notarizacion (opcional) -------------------------------
