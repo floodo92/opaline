@@ -117,15 +117,27 @@ jobs:
           echo "pluginval: $URL"
           curl -fsSL -o "$RUNNER_TEMP/pluginval.zip" "$URL"
           unzip -q "$RUNNER_TEMP/pluginval.zip" -d "$RUNNER_TEMP/pluginval"
-          chmod +x "$RUNNER_TEMP/pluginval/pluginval"
-          "$RUNNER_TEMP/pluginval/pluginval" --help | head -3
+          # OJO: el zip de macOS NO tiene el binario en la raiz. Contiene:
+          #   pluginval.app/Contents/MacOS/pluginval
+          # Buscarlo por nombre es lo unico robusto (la estructura interna puede
+          # cambiar entre versiones).
+          PV=$(find "$RUNNER_TEMP/pluginval" -type f -name pluginval -perm -111 -print -quit)
+          if [ -z "$PV" ]; then
+            echo "::error::pluginval no esta dentro del zip descargado:"
+            find "$RUNNER_TEMP/pluginval" -type f | head -20
+            exit 1
+          fi
+          chmod +x "$PV"
+          "$PV" --help | head -3
 
       - name: Validar VST3 (pluginval strictness 10)
         run: |
           set -euo pipefail
           VST3=$(find build -name "*.vst3" -type d -print -quit)
           if [ -z "$VST3" ]; then echo "::error::No se genero el .vst3"; exit 1; fi
-          "$RUNNER_TEMP/pluginval/pluginval" \
+          PV=$(find "$RUNNER_TEMP/pluginval" -type f -name pluginval -perm -111 -print -quit)
+          if [ -z "$PV" ]; then echo "::error::pluginval no encontrado"; exit 1; fi
+          "$PV" \
             --validate-in-process --strictness-level 10 "$VST3"
 
       - name: Validar AU (AuVal) — MANUAL
