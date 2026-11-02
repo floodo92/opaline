@@ -6,10 +6,15 @@
 > arreglado.
 >
 > **Regla 0: Windows es sagrado.** Ningún fix de este documento cambia cómo suena ni cómo se
-> comporta el plugin en Windows: son cambios de **workflow/CI**, no de DSP.
+> comporta el plugin en Windows: son cambios de **workflow/CI**, no de DSP. El único fix de código
+> (el temporal de `AudioBlock`) es **equivalente exacto** y se verificó compilando en Windows.
 >
-> **Este repo es el que mejor está**: su workflow tiene **todos** los gates del skill. Lo que queda
-> son 2 huecos puntuales y el run real en macOS.
+> **ESTADO FINAL: el port está TERMINADO.** El run `41388471858` produjo un `.pkg` universal,
+> firmado, notarizado y aceptado por Gatekeeper (los 6 gates en verde). Ver §H3.
+>
+> **Este repo es el que mejor está**: su workflow tiene **todos** los gates del skill. Lo único que
+> queda abierto es el `auval` manual (H2) y el `FAIL` de aliasing preexistente de Windows, que es
+> una decisión de producto.
 >
 > **Documento complementario:** `MACOS_PORT.md` (la auditoría de DSP/UI/paridad hecha con el skill
 > `macos-build-audit`). Este archivo es el complemento de **build/firma/entrega**.
@@ -22,9 +27,10 @@
    ```bash
    bash "F:/MARCELO/Software/Plugins/Floodos audio labs/Plugins/Windows/.opencode/skills/macos-build/scripts/preflight.sh" .
    ```
-2. Aplicar **H2** (el `auval` que no valida) y revisar **H1** (red desactivada: decisión, no bug).
+2. **Solo queda H2** (el `auval` que no valida). H1 (red desactivada) es una decisión, no un bug.
 3. Re-correr el preflight: debe dar **0 FAIL** (ya lo da).
-4. **H3 es el paso que falta de verdad**: correr el workflow en un runner macOS.
+4. Para re-emitir el instalador: `gh workflow run build-macos.yml --repo floodo92/opaline -f notarize=true`.
+   **No hacer push mientras corre** (E54: el push cancela la firma).
 
 ---
 
@@ -32,18 +38,18 @@
 
 | Gate | Estado | Evidencia |
 |------|--------|-----------|
-| G1 binario universal | OK | `build-macos.yml:88` (`arm64;x86_64`) |
-| G2 build optimizado (Release) | OK | `build-macos.yml:86` (`-DCMAKE_BUILD_TYPE=Release`) |
-| G3 el `.pkg` tiene payload | OK | `build-macos.yml:303-307` (check antes de notarizar) |
-| G4 el `.pkg` está firmado | OK | `build-macos.yml:276-280` (identidad **leída** del keychain) |
-| G5 está notarizado | OK | `build-macos.yml:322-328` (`--output-format json` + staple) |
-| G6 Gatekeeper | OK | `build-macos.yml:329` (`spctl`) |
-| keychain fail-fast | OK | `build-macos.yml:233` (`security find-identity`) |
-| JUCE pineado | OK | `build-macos.yml:78` (`--branch "$JUCE_VERSION"`, L38 = `9.0.4`) |
-| firma solo con tag/manual | OK | `build-macos.yml:204` (guardia del job `release`) |
-| pluginval real | OK | `build-macos.yml:120-126` (strictness 10, asset real) |
-| **auval real** | **NO** | `build-macos.yml:128-133` → **H2** |
-| CI en verde | **sin run real** | nunca se ejecutó en macOS → **H3** |
+| G1 binario universal | **OK (probado)** | run `41388471858`: `archs: x86_64 arm64` |
+| G2 build optimizado (Release) | **OK (probado)** | `-DCMAKE_BUILD_TYPE=Release` |
+| G3 el `.pkg` tiene payload | **OK (probado)** | `Payload OK: .pkgcheck/au_component.pkg/Payload` |
+| G4 el `.pkg` está firmado | **OK (probado)** | `Developer ID Installer: Marcelo Civallero (TEAM_ID)` |
+| G5 está notarizado | **OK (probado)** | 3 × `status: Accepted` + `The staple and validate action worked!` |
+| G6 Gatekeeper | **OK (probado)** | `final_plugin.pkg: accepted` / `source=Notarized Developer ID` |
+| keychain fail-fast | OK | `security find-identity` |
+| JUCE pineado | OK | `--branch "$JUCE_VERSION"` = `9.0.4` |
+| firma solo con tag/manual | OK | guardia del job `release` + `github.event_name` en el grupo de concurrencia |
+| pluginval real | **OK (probado)** | strictness 10, asset real, binario buscado por nombre (E53) |
+| **auval real** | **NO** | el step sigue siendo manual → **H2** |
+| CI en verde | **OK (probado)** | run `41388471858` (build + release, los 2 jobs verdes) |
 
 ---
 
@@ -128,29 +134,35 @@ sus parámetros), no solo el `find`.
 
 ---
 
-### H3 — INFO — nunca se ejecutó el workflow en un runner macOS
+### H3 — ✅ RESUELTO — el workflow ya corrió verde en un runner macOS
 
-**Dónde:** `.github/workflows/build-macos.yml` (workflow completo, **nunca corrido**).
+**Dónde:** `.github/workflows/build-macos.yml` — run **`41388471858`** (workflow_dispatch + `notarize: true`).
 
-**Qué significa:** el workflow está escrito y validado sintácticamente, pero **no hay un run verde**
-que pruebe que compila, firma y notariza. `MACOS_PORT.md` lo dice explícitamente:
-*"Veredicto: NO PUBLICABLE TODAVÍA — falta el run en macOS (Fases 2-6 en Mac)"*.
+**Resultado: los 6 gates en verde.**
 
-**Qué falta para cerrarlo:**
+| # | Gate | Evidencia del run |
+|---|------|-------------------|
+| G1 | Compila **universal** | `archs: x86_64 arm64` (`lipo`) |
+| G2 | Compila en **Release** | `-DCMAKE_BUILD_TYPE=Release` |
+| G3 | El `.pkg` tiene **payload** | `Payload OK: .pkgcheck/au_component.pkg/Payload` |
+| G4 | Está **firmado** | `Developer ID Installer: Marcelo Civallero (TEAM_ID)` |
+| G5 | Está **notarizado** | 3 × `status: Accepted` + `The staple and validate action worked!` |
+| G6 | Gatekeeper lo **acepta** | `final_plugin.pkg: accepted` / `source=Notarized Developer ID` |
 
-| Fase | Qué | Estado |
-|------|-----|--------|
-| 2 | el workflow corre y el build es universal | pendiente del 1er run |
-| 3 | DSP verificado en Mac | pendiente (el Gauntlet de Mac) |
-| 4 | UI verificada en Mac | pendiente (el harness de snapshots ya renderiza headless) |
-| 5 | validación runtime en Mac | pendiente (pluginval + auval + self-tests) |
-| 6 | gate de paridad Mac↔Windows | pendiente (compara contra `tests/baseline/windows/baseline_windows.txt`) |
+**Además, en verde:** `verify_bundle.sh` en modo `signed` → **0 FAIL / 24 PASS** (plist, universal,
+deployment target, dependencias del sistema, hardened runtime, `codesign --verify --deep --strict`),
+`pluginval --strictness-level 10`, render headless de la UI, Gauntlet de DSP y gate de paridad
+Mac↔Windows contra el baseline congelado de Windows.
 
-**Cómo continuar:**
-1. `gh workflow run build-macos.yml --repo floodo92/opaline` (disparo manual, **sin** `notarize`).
-2. Mirar el log: el build tiene que ser universal y los self-tests verdes.
-3. Cuando el build esté validado, repetir con `notarize: true` para producir el `.pkg`.
-4. Comparar el informe de paridad contra el baseline congelado de Windows.
+**Entrega:** `dist-macos/final_plugin.pkg` (12.231.918 bytes) y `dist-macos/final_plugin.pkg.zip`
+(12.200.568 bytes) — **siempre zipeado**: un `.pkg` bajado por HTTP directo le pone la cuarentena de
+Gatekeeper y el tester ve "no se puede verificar".
+SHA-256 del `.pkg`: `F4910FF70FB6A0E3E38368A0CAAB284A37CAC944DAA62E687C1A4322317C9529`.
+
+**Lo que sigue pendiente (no bloquea el `.pkg`):**
+- El step de `auval` sigue siendo manual (H2).
+- El `FAIL` preexistente de Windows (`ALIASING_FLOOR`, -59.6 dB) **no se tocó**: es una decisión de
+  producto, no del port.
 
 ---
 
@@ -205,6 +217,15 @@ documentación o script que apunte a `build-mac.yml` no lo va a encontrar. Renom
 | `41368971002` | `Compilar` — temporal a referencia no-const | **E49/P1** | `68e3763` |
 | `41375076151` | `Verificar el binario` — 6 falsos positivos | **E50/E51** | `22adcd8` |
 | `41377071502` | `Instalar pluginval` — no está en la raíz del zip | **E53** | `36b350a` |
+| `41378292055` | `Notarizar los bundles` — **cancelado** por el push que lo disparó | **E54** | `77583e7` |
+| `41382936539` | `Armar los .pkg` — el `sed` corrompió la declaración XML (2 notarizaciones gastadas) | **E55** | `0eff972` |
+| **`41388471858`** | — | — | **VERDE: pkg firmado + notarizado + Gatekeeper OK** |
+
+**La lección de esta historia:** 4 de los 5 fallos eran **verificables localmente, sin runner**:
+un `sed` que se comía la línea 1 del XML, un `otool -L` mal parseado, una ruta de zip que no
+existe, y un grupo de concurrencia que se cancelaba a sí mismo. Por eso el skill ahora tiene
+`preflight.sh` (34 checks) + `portability_scan.sh` (barrido MSVC→clang) + `diagnose_run.sh`
+(clasificador) + `auto_build.sh` (el bucle que se auto-corrige).
 
 ---
 

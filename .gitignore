@@ -15,6 +15,11 @@ obj/
 # Previews/temporales
 opaline_preview.png
 
+# Instaladores de macOS (se descargan del artifact del run, no van al repo)
+dist-macos/
+*.pkg
+*.pkg.zip
+
 # VS / IDE
 .vs/
 *.vcxproj.user
