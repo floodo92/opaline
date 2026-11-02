@@ -312,8 +312,23 @@ jobs:
           fi
           if [ -z "$VERSION" ]; then echo "::error::No se pudo determinar la version"; exit 1; fi
           echo "Version del pkg: $VERSION"
-          sed -i.bak "s/version=\"[0-9][0-9.]*\"/version=\"$VERSION\"/g" distribution.xml
+          # OJO: el sed tiene que estar RESTRINGIDO a las lineas con pkg-ref.
+          # Un sed global tambien cambia la DECLARACION XML de la linea 1:
+          #   <?xml version="1.0" ...?>  ->  <?xml version="1.0.1" ...?>
+          # y productbuild deja de poder leer el archivo:
+          #   "Could not read distribution.xml (Line 1: String not closed)"
+          sed -i.bak "/pkg-ref/s/version=\"[0-9][0-9.]*\"/version=\"$VERSION\"/g" distribution.xml
           rm -f distribution.xml.bak
+          # fail-fast: si el XML quedo corrupto, que lo diga ACA y no 2 steps
+          # mas tarde con un error de productbuild.
+          if ! grep -q '^<?xml version="1\.0"' distribution.xml; then
+            echo "::error::distribution.xml quedo corrupto al cambiar la version"
+            head -3 distribution.xml
+            exit 1
+          fi
+          if command -v xmllint >/dev/null 2>&1; then
+            xmllint --noout distribution.xml || { echo "::error::distribution.xml no es XML valido"; exit 1; }
+          fi
           VST3=$(find dist -name "*.vst3" -type d -print -quit)
           AU=$(find dist -name "*.component" -type d -print -quit)
           if [ -z "$VST3" ] || [ -z "$AU" ]; then
